@@ -126,7 +126,13 @@
      *  egenskapsnavnet, eventuelt avgrenset til ett Pset. */
     function matches(obj, key, value, pset, operator) {
       // StreamBIM sin egen "disse objektene"-regel (searchForObjects): @guid in a|b|c
-      if (key === "@guid") return operator === "in" ? String(value).split("|").includes(obj.guid) : obj.guid === value;
+      // "@guid in a|b": StreamBIM fant live ingenting når det bare var ÉN verdi (0 av 1 objekter,
+      // mens 2+ virket). Mocken etterligner det; vanlig likhet (uten operator) virker.
+      if (key === "@guid") {
+        if (operator !== "in") return obj.guid === value;
+        const list = String(value).split("|");
+        return list.length >= 2 && list.includes(obj.guid);
+      }
       if (key === "@kind") {
         const wanted = String(value).toLowerCase();
         return settings.kind && (obj.kind.toLowerCase() === wanted || readableKind(obj.kind).toLowerCase() === wanted);
@@ -174,8 +180,10 @@
       getLayers: async () => ({ RIB: true, ARK: false }),
       getCameraState: async () => ({ position: [10, 10, 10], quaternion: [1, 0, 0, 0] }),
       // Uten findfilter=1 gir findObjects alle objektene, slik ekte StreamBIM gjorde i live-test.
+      // Regler med verdier som finnes filtrerer også live (@kind «Reinforcing bar»: 2125 av 3624,
+      // guid-regler: 3/3, 0/1). Bare nøkkel/verdi-søk gir alt, med mindre findfilter=1.
       findObjects: async (query) =>
-        settings.findfilter ? search(query) : objects.slice(0, query.limit || 100).map((o) => o.guid),
+        query.rules || settings.findfilter ? search(query) : objects.slice(0, query.limit || 100).map((o) => o.guid),
       getObjectInfo: async (guid) => {
         const obj = byGuid.get(guid);
         if (!obj) throw { code: "unknown", debug: guid };
@@ -213,7 +221,12 @@
       // så setSearchVisualizationMode og zoomToSearchResult virker på nettopp dem. Tomt
       // kart fjerner fargene og søket.
       colorCodeObjects: async (map) => {
-        const entries = Object.entries(map || {});
+        // Søker «@guid in a|b|c» (alltid «in»), så ett objekt gir ingen treff — som live.
+        const requested = Object.keys(map || {});
+        const hits = requested.length
+          ? search({ rules: [[{ propKey: "@guid", operator: "in", propValue: requested.join("|") }]], limit: 1e9 })
+          : [];
+        const entries = Object.entries(map || {}).filter(([guid]) => hits.includes(guid));
         state.highlighted.clear();
         state.colorCoded = new Map(entries);
         state.activeSearch = entries.length ? new Set(entries.map(([guid]) => guid)) : null;

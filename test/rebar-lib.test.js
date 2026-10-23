@@ -236,7 +236,15 @@ test.describe("guidSearchRule", () => {
   });
 
   test("leaves out buildingId when it is unknown", () => {
-    assert.deepEqual(guidSearchRule(["a"], null), { propKey: "@guid", operator: "in", propValue: "a" });
+    assert.deepEqual(guidSearchRule(["a", "b"], null), { propKey: "@guid", operator: "in", propValue: "a|b" });
+  });
+
+  test("uses plain equality for ONE object: StreamBIM's «in» finds nothing for a single value", () => {
+    // Live (2026-10-23): «@guid in <ett guid>» ga «fant 0/1 objekter» for hver enkeltobjekt-gruppe,
+    // mens «in» med 2+ guid ga N/N. Vanlig likhet er formen StreamBIM selv bruker for rom.
+    assert.deepEqual(guidSearchRule(["a"], "1000"), { buildingId: "1000", propKey: "@guid", propValue: "a" });
+    assert.deepEqual(guidSearchRule(["a"], null), { propKey: "@guid", propValue: "a" });
+    assert.equal("operator" in guidSearchRule(["a"], "1000"), false);
   });
 });
 

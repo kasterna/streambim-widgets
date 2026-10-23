@@ -191,7 +191,7 @@ export function createModelView(container, model, onPick) {
       mesh.visible = !(outsideSearch && state.visualizationMode === "HIDDEN");
       const codedColor = state.colorCoded && state.colorCoded.get(guid);
       if (codedColor) mesh.material = colorMaterial(codedColor);
-      else if (state.highlighted.has(guid)) mesh.material = highlightMaterial;
+      else if (state.highlighted.has(guid) || (state.activeSearch && state.activeSearch.has(guid))) mesh.material = highlightMaterial;
       else if (outsideSearch && state.visualizationMode === "FADED") mesh.material = fadedMaterial;
       else mesh.material = normalMaterial(mesh.userData.obj.kind);
     }

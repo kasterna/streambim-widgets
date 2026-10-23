@@ -242,22 +242,30 @@ function visualizationMode() {
  *  4. Zoom: zoomToSearchResult bruker siste FERDIGE søk. applyObjectSearch med samme
  *     "@guid in"-regel svarer først når søket er ferdig, så zoomen treffer gruppen. */
 async function markGroup(row, { zoom }) {
+  const single = row.objects === 1;
+  const search = { rules: [[guidSearchRule(row.guids, buildingId || row.building)]] };
+
   await StreamBIM.API.colorCodeObjects({});
   if (visualizationMode() !== "FADED") await StreamBIM.API.setSearchVisualizationMode(visualizationMode());
-  await StreamBIM.API.colorCodeObjects(colorCodeMap(row.guids, MARK_COLOR));
-  if (zoom) {
-    await StreamBIM.API.applyObjectSearch({ rules: [[guidSearchRule(row.guids, buildingId || row.building)]] });
-    await StreamBIM.API.zoomToSearchResult();
+  if (single) {
+    // colorCodeObjects søker alltid med «@guid in», som ikke fant noe live når det bare var ÉN
+    // verdi (0 av 1 objekter, ingen markering). Et vanlig søk med likhetsregel gir samme
+    // visning (grønn markering, resten tonet ned eller skjult).
+    await StreamBIM.API.applyObjectSearch(search);
+  } else {
+    await StreamBIM.API.colorCodeObjects(colorCodeMap(row.guids, MARK_COLOR));
+    if (zoom) await StreamBIM.API.applyObjectSearch(search);
   }
-  // Grupper med ÉTT objekt ga ingen synlig markering live (søket slo ikke ut, selv om grupper
-  // med flere objekter virket). Velg og fly derfor også til objektet direkte: det bruker
-  // ikke søk, så det virker uansett.
-  if (row.objects === 1) await selectSingleObject(row, { fly: zoom });
-  return verifyMark(row);
+  if (zoom) await StreamBIM.API.zoomToSearchResult();
+
+  const found = await verifyMark(row);
+  // Reserve: finner StreamBIM likevel ikke enkeltobjektet, velg og fly dit direkte (virker uten søk).
+  if (single && found === 0) await selectSingleObject(row, { fly: zoom });
+  return found;
 }
 
 /** Velger ett objekt direkte (StreamBIM sin vanlige objektvalg-markering) og flyr eventuelt
- *  kameraet dit. Reserve for enkeltobjekter, uavhengig av søket. */
+ *  kameraet dit. Reserve for enkeltobjekter når søket ikke finner dem. */
 async function selectSingleObject(row, { fly }) {
   const guid = row.guids[0];
   await StreamBIM.API.highlightObject(guid);

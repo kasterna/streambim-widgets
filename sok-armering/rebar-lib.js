@@ -200,16 +200,15 @@
     };
   }
 
-  /** Regel for «nettopp disse objektene» — samme regel StreamBIM selv bygger i
-   *  colorCodeObjects (searchForObjects). Brukes med applyObjectSearch, som først svarer
-   *  når søket er ferdig, slik at zoomToSearchResult etterpå treffer riktig gruppe. */
+  /** Regel for «nettopp disse objektene». Flere objekter: samme «@guid in a|b|c» som StreamBIM
+   *  selv bygger i colorCodeObjects. ÉTT objekt: vanlig likhet uten operator, for «in» med bare
+   *  én verdi fant ingenting live (0 av 1 objekter for hver enkeltobjekt-gruppe, mens 2+ ga N/N).
+   *  Likhet er formen StreamBIM bruker for rom (searchForSpaces). Brukes med applyObjectSearch,
+   *  som først svarer når søket er ferdig, slik at zoomToSearchResult treffer riktig gruppe. */
   function guidSearchRule(guids, buildingId) {
-    return {
-      ...(buildingId ? { buildingId } : {}),
-      propKey: "@guid",
-      operator: "in",
-      propValue: guids.join("|"),
-    };
+    const base = { ...(buildingId ? { buildingId } : {}), propKey: "@guid" };
+    if (guids.length === 1) return { ...base, propValue: guids[0] };
+    return { ...base, operator: "in", propValue: guids.join("|") };
   }
 
   /** {guid: farge} for colorCodeObjects(). StreamBIM farger objektene OG gjør dem til
