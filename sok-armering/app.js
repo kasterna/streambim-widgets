@@ -1,14 +1,18 @@
 const {
   FIELDS,
-  REBAR_SEARCHES,
+  REBAR_KINDS,
+  UNKNOWN_KIND,
   findProperty,
   objectProperties,
   isRebarObject,
   groupRebar,
-  postnrSearchRule,
   guidSearchRule,
-  colorCodeMap,
-  unionBbox,
+  rebarCandidates,
+  sameGuidSet,
+  filterRows,
+  exportItems,
+  exportSamples,
+  exportGaps,
   sortRows,
   formatLengde,
   moveToTop,
@@ -20,7 +24,6 @@ const WIDGET_VERSION = new URL(document.currentScript.src).searchParams.get("v")
 
 const SEARCH_LIMIT = 10000;
 const INFO_CONCURRENCY = 10;
-const MARK_COLOR = "#ffd400"; // gul — leses av three.js i StreamBIM, så "#" må være med
 const CONNECT_TIMEOUT_MS = 15000;
 const COLUMNS = ["postnr", "count", "objects", "diameter", "lengde", "formkode", "segment"];
 
@@ -28,6 +31,8 @@ const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("refresh-btn");
 const countEl = document.getElementById("count");
 const restModeSelect = document.getElementById("rest-mode");
+const filterInput = document.getElementById("postnr-filter");
+const filterCountEl = document.getElementById("filter-count");
 const noteEl = document.getElementById("note");
 const tableContainer = document.getElementById("table-container");
 const tableBody = document.querySelector("#rebar-table tbody");
@@ -36,7 +41,6 @@ const debugToggle = document.getElementById("debug-toggle");
 const debugPanel = document.getElementById("debug-panel");
 const debugOutput = document.getElementById("debug-output");
 const logEl = document.getElementById("log");
-const searchTestBtn = document.getElementById("search-test-btn");
 const copyBtn = document.getElementById("copy-btn");
 
 let rows = []; // grouped rebar rows currently shown
@@ -45,9 +49,8 @@ let sortDir = 1;
 let selectedKey = null; // postnr of the highlighted row
 let lastPickedGuid = null;
 let hasLoaded = false;
-let rebarObjectCount = 0; // armeringsobjekter i lista — brukes til å avsløre søk som ikke filtrerer
-const bboxByGuid = new Map(); // guid -> StreamBIM bbox [minX, minY, minZ, maxX, maxY, maxZ]
 let buildingId = null; // fra getBuildingId() — samme verdi StreamBIM bruker i egne søkeregler
+let listNote = ""; // meldingen fra sist lasting, vises igjen når en markering går bra
 // Nytt navn (var "sok-armering-ton-ned" med 1/0): en tidligere "av" skal ikke ta bort nedtoningen.
 const REST_STORAGE_KEY = "sok-armering-resten";
 const REST_MODES = ["FADED", "HIDDEN", "ORIGINAL"]; // StreamBIM sine visningsmoduser utenfor søket
@@ -74,30 +77,69 @@ function showNote(text) {
   noteEl.classList.toggle("show", Boolean(text));
 }
 
-/** Kjører alle søkene i REBAR_SEARCHES og slår sammen GUID-ene. Treff per søkeverdi
- *  logges, så det synes om StreamBIM faktisk filtrerer (i første live-test ga alle
- *  verdier de samme objektene). */
-async function findAllRebarGuids() {
-  const guids = new Set();
-  for (const search of REBAR_SEARCHES) {
-    const counts = [];
-    for (const value of search.values) {
-      try {
-        const found = (await StreamBIM.API.findObjects({ key: search.key, value, limit: SEARCH_LIMIT })) || [];
-        found.forEach((guid) => guids.add(guid));
-        counts.push(`"${value}"=${found.length}`);
-      } catch (err) {
-        counts.push(`"${value}"=feil (${errText(err)})`);
+/** Finner kandidatene til armering: ett findObjects-søk per @kind-verdi, pluss ett på en
+ *  verdi som ikke finnes, for å kjenne igjen søk som ikke filtrerer (rebarCandidates). Da
+ *  hentes info bare for armeringen, ikke for hver vegg og plate i bygningen. Treffene
+ *  logges, så det synes hvordan StreamBIM svarte. Returnerer {guids, kinds}. */
+async function findRebarCandidates() {
+  const find = (value) =>
+    StreamBIM.API.findObjects({ key: "@kind", value, limit: SEARCH_LIMIT }).then(
+      (hits) => hits || [],
+      (err) => {
+        log(`Søk på @kind "${value}" feilet: ${errText(err)}`);
+        return null;
       }
-    }
-    log(`Søk på ${search.label}: ${counts.join(", ")}.`);
-  }
-  log(`Til sammen ${guids.size} unike objekter fra søkene.`);
-  return Array.from(guids);
+    );
+  const unknownHits = await find(UNKNOWN_KIND);
+  const hitsByKind = {};
+  for (const kind of REBAR_KINDS) hitsByKind[kind] = await find(kind);
+
+  const candidates = rebarCandidates(hitsByKind, unknownHits);
+  const counts = REBAR_KINDS.map((kind) => `"${kind}"=${hitsByKind[kind] ? hitsByKind[kind].length : "feil"}`);
+  log(`Søk på @kind: ${counts.join(", ")}, ukjent verdi=${unknownHits ? unknownHits.length : "feil"}. ${candidates.guids.length} objekter å hente.`);
+  return candidates;
 }
 
-/** Henter info per objekt og beholder bare armering (@kind), siden søkene ikke filtrerer
- *  pålitelig. Egenskapene samles fra både `properties` og `groups` (objectProperties). */
+/** Rask henting: ett getObjectInfoForSearch-kall per @kind som filtrerte, i stedet for ett
+ *  getObjectInfo-kall per objekt. Svaret er StreamBIM sin søkeeksport, og formatet er ikke
+ *  dokumentert, så det kontrolleres før det brukes: nøyaktig de samme objektene som søket,
+ *  og stikkprøver mot getObjectInfo for hver kolonne. Returnerer items, eller null når den
+ *  vanlige hentingen per objekt må brukes (grunnen logges). */
+async function fetchRebarViaExport(kinds, guids) {
+  if (kinds.length === 0) return null; // ingen søk filtrerte, så eksporten ville gitt alt
+  try {
+    setStatus("Henter egenskaper for alle objektene i ett kall...", "busy");
+    const byGuid = new Map();
+    for (const kind of kinds) {
+      const response = await StreamBIM.API.getObjectInfoForSearch({
+        filter: { key: "@kind", value: kind },
+        page: { limit: SEARCH_LIMIT, skip: 0 },
+        fieldUnion: true, // alle egenskaper, ikke bare dem alle objektene har felles
+      });
+      exportItems(response).forEach((item) => byGuid.set(item.guid, item));
+    }
+    const items = [...byGuid.values()];
+    if (!sameGuidSet(items.map((item) => item.guid), guids)) {
+      log(`Hurtighenting ga ${items.length} objekter, søket ${guids.length}. Henter per objekt i stedet.`);
+      return null;
+    }
+    for (const sample of exportSamples(items)) {
+      const gaps = exportGaps(sample.properties, objectProperties(await StreamBIM.API.getObjectInfo(sample.guid)));
+      if (gaps.length) {
+        log(`Hurtighentingen mangler ${gaps.join(", ")} (stikkprøve ${sample.guid}). Henter per objekt i stedet.`);
+        return null;
+      }
+    }
+    return items.map((item) => ({ ...item, building: buildingId }));
+  } catch (err) {
+    log(`Hurtighenting feilet (${errText(err)}). Henter per objekt i stedet.`);
+    return null;
+  }
+}
+
+/** Henter info per objekt og beholder bare armering (@kind). Filtrerte ingen av søkene, er
+ *  alle objektene i bygningen med her. Egenskapene samles fra både `properties` og `groups`
+ *  (objectProperties). */
 async function fetchRebarInfo(guids) {
   const infos = await mapWithConcurrency(
     guids,
@@ -112,10 +154,45 @@ async function fetchRebarInfo(guids) {
   const items = infos
     .map((info, i) => (info ? { guid: guids[i], properties: objectProperties(info), building: info.building } : null))
     .filter(Boolean);
-  infos.forEach((info, i) => info && info.bbox && bboxByGuid.set(guids[i], info.bbox));
   const rebar = items.filter((item) => isRebarObject(item.properties));
   if (rebar.length < items.length) log(`${items.length - rebar.length} objekter var ikke armering (@kind) og ble utelatt.`);
   return rebar;
+}
+
+/** StreamBIM søker og zoomer i AKTIV bygning (et prosjekt kan ha flere, f.eks. én per sted).
+ *  Byttes bygning etter at widgeten startet, må id-en hentes på nytt, ellers får
+ *  søkeregelen feil buildingId. */
+async function refreshBuildingId() {
+  const previous = buildingId;
+  buildingId = await StreamBIM.API.getBuildingId().catch(() => buildingId);
+  if (previous === null) log(`Bygning (getBuildingId): ${buildingId ?? "ukjent — bruker bygning fra objektinfo"}`);
+  else if (buildingId !== previous) log(`Aktiv bygning er endret: ${previous} → ${buildingId}.`);
+}
+
+/** Meldingen over lista etter lasting: ingen armering, manglende postnr eller manglende 3D. */
+function loadNote(objectCount, missingPostnr, missing3d) {
+  if (objectCount === 0) {
+    return (
+      `Fant ingen armering (@kind «${REBAR_KINDS.join("» eller «")}»). Klikk et armeringselement i ` +
+      "3D-vieweren og åpne «Feilsøking» nederst for å se hvilke egenskaper StreamBIM har på elementet."
+    );
+  }
+  const notes = [];
+  if (missingPostnr > 0) {
+    notes.push(
+      `${missingPostnr} elementer manglet postnr-egenskapen. Klikk ett av dem i 3D-vieweren og ` +
+      "åpne «Feilsøking» for å se hva postnr heter i denne modellen."
+    );
+  }
+  if (missing3d > 0) {
+    const affected = rows.filter((row) => row.missing3d > 0).map((row) => row.postnr);
+    notes.push(
+      `${missing3d} av ${objectCount} objekter har ingen 3D-geometri i StreamBIM og vises ikke i modellen ` +
+      `(postnr ${affected.slice(0, 20).join(", ")}${affected.length > 20 ? " …" : ""}). ` +
+      "Sjekk eksporten/importen av IFC-filen."
+    );
+  }
+  return notes.join(" ");
 }
 
 async function fetchRebarList() {
@@ -124,34 +201,19 @@ async function fetchRebarList() {
   showNote("");
 
   try {
-    // StreamBIM søker og zoomer i AKTIV bygning (et prosjekt kan ha flere, f.eks. én per
-    // sted). Bygges valgt bygning om etter at widgeten startet, må vi hente id-en på nytt,
-    // ellers får zoom-regelen feil buildingId.
-    const previousBuilding = buildingId;
-    buildingId = await StreamBIM.API.getBuildingId().catch(() => buildingId);
-    if (previousBuilding !== null && buildingId !== previousBuilding) {
-      log(`Aktiv bygning er endret: ${previousBuilding} → ${buildingId}.`);
+    const started = performance.now();
+    await refreshBuildingId();
+    const { guids, kinds } = await findRebarCandidates();
+    let items = [];
+    if (guids.length) {
+      const fast = await fetchRebarViaExport(kinds, guids);
+      items = fast || (await fetchRebarInfo(guids));
+      log(`${fast ? "Hurtighenting" : "Henting per objekt"}: ${((performance.now() - started) / 1000).toFixed(1)} s.`);
     }
-    const guids = await findAllRebarGuids();
-    if (guids.length === 0) {
-      rows = [];
-      hasLoaded = true;
-      renderTable();
-      countEl.textContent = "0 armeringselementer funnet.";
-      showNote(
-        "Fant ingen armering via @kind (Reinforcing bar/mesh) eller Common Type. " +
-        "Klikk et armeringselement i 3D-vieweren og åpne \"Feilsøking\" nederst for å se hvilke " +
-        "egenskaper StreamBIM faktisk har på elementet."
-      );
-      setStatus("Tilkoblet StreamBIM ✔ (0 treff)", "ok");
-      return;
-    }
-
-    const items = await fetchRebarInfo(guids);
     const { rows: grouped, missingPostnr, missing3d } = groupRebar(items);
     rows = sortRows(grouped, sortKey, sortDir);
-    rebarObjectCount = items.length;
-    selectedKey = null;
+    // Behold valget hvis gruppen fortsatt finnes, så lista stemmer med markeringen i 3D.
+    if (!rows.some((row) => row.postnr === selectedKey)) selectedKey = null;
     hasLoaded = true;
     renderTable();
 
@@ -159,23 +221,9 @@ async function fetchRebarList() {
     countEl.textContent =
       `${bars} stenger i ${items.length} IFC-objekter (${rows.length} unike postnr)` +
       (buildingId ? ` · bygning ${buildingId}.` : ".");
-    const notes = [];
-    if (missingPostnr > 0) {
-      notes.push(
-        `${missingPostnr} elementer manglet postnr-egenskapen. Klikk ett av dem i 3D-vieweren og ` +
-        "åpne \"Feilsøking\" for å se hva postnr heter i denne modellen."
-      );
-    }
-    if (missing3d > 0) {
-      const affected = rows.filter((row) => row.missing3d > 0).map((row) => row.postnr);
-      notes.push(
-        `${missing3d} av ${items.length} objekter har ingen 3D-geometri i StreamBIM og vises ikke i modellen ` +
-        `(postnr ${affected.slice(0, 20).join(", ")}${affected.length > 20 ? " …" : ""}). ` +
-        "Sjekk eksporten/importen av IFC-filen."
-      );
-      log(`${missing3d} objekter uten 3D-geometri i StreamBIM.`);
-    }
-    showNote(notes.join(" "));
+    listNote = loadNote(items.length, missingPostnr, missing3d);
+    showNote(listNote);
+    if (missing3d > 0) log(`${missing3d} objekter uten 3D-geometri i StreamBIM.`);
     setStatus("Tilkoblet StreamBIM ✔", "ok");
     log(`Hentet ${items.length} IFC-objekter med ${bars} stenger, ${rows.length} unike postnr.`);
   } catch (err) {
@@ -190,18 +238,23 @@ async function fetchRebarList() {
  *  som HTML. */
 function renderTable() {
   tableBody.replaceChildren();
+  const query = filterInput.value.trim();
+  const visible = filterRows(rows, query);
+  filterCountEl.textContent = query && rows.length ? `${visible.length} av ${rows.length}` : "";
 
-  if (rows.length === 0) {
+  if (visible.length === 0) {
     const tr = document.createElement("tr");
     tr.id = "empty-row";
     const td = document.createElement("td");
     td.colSpan = COLUMNS.length;
-    td.textContent = hasLoaded ? "Ingen armering i lista." : "Lista lastes når widgeten er koblet til StreamBIM.";
+    if (!hasLoaded) td.textContent = "Lista lastes når widgeten er koblet til StreamBIM.";
+    else if (rows.length && query) td.textContent = `Ingen postnr inneholder «${query}».`;
+    else td.textContent = "Ingen armering i lista.";
     tr.appendChild(td);
     tableBody.appendChild(tr);
   }
 
-  for (const row of rows) {
+  for (const row of visible) {
     const tr = document.createElement("tr");
     if (row.postnr === selectedKey) tr.className = "selected";
     // "Obj." er IFC-objekter — samme tall som StreamBIM viser i «Fremhever N objekter».
@@ -230,65 +283,56 @@ function visualizationMode() {
   return restModeSelect.value;
 }
 
-/** Gjør hele postnr-gruppen gul og toner ned resten. Rekkefølgen er bygget på StreamBIM
- *  sin egen kode (se docs, «Slik virker API-et egentlig»):
- *  1. colorCodeObjects({}) = resetIfcSearch: tømmer søk, farger og visningsmodus. Uten
- *     dette kjørte setSearchVisualizationMode (reloadSearch) det FORRIGE søket parallelt
- *     med det nye, og bare første klikk virket (live 2026-10-23).
- *  2. FADED er StreamBIM sin standard etter reset; ORIGINAL settes før det nye søket,
- *     når det ikke finnes noe gammelt søk å kjøre på nytt.
- *  3. colorCodeObjects(map) farger og søker. Fargekoden er på plass når søket er ferdig,
- *     så StreamBIM tegner COLOR_CODED (gult), ikke sin grønne søkefarge.
- *  4. Zoom: zoomToSearchResult bruker siste FERDIGE søk. applyObjectSearch med samme
- *     "@guid in"-regel svarer først når søket er ferdig, så zoomen treffer gruppen. */
-async function markGroup(row, { zoom }) {
-  const single = row.objects === 1;
-  const search = { rules: [[guidSearchRule(row.guids, buildingId || row.building)]] };
-
-  await StreamBIM.API.colorCodeObjects({});
-  if (visualizationMode() !== "FADED") await StreamBIM.API.setSearchVisualizationMode(visualizationMode());
-  if (single) {
-    // colorCodeObjects søker alltid med «@guid in», som ikke fant noe live når det bare var ÉN
-    // verdi (0 av 1 objekter, ingen markering). Et vanlig søk med likhetsregel gir samme
-    // visning (grønn markering, resten tonet ned eller skjult).
-    await StreamBIM.API.applyObjectSearch(search);
-  } else {
-    await StreamBIM.API.colorCodeObjects(colorCodeMap(row.guids, MARK_COLOR));
-    if (zoom) await StreamBIM.API.applyObjectSearch(search);
-  }
-  if (zoom) await StreamBIM.API.zoomToSearchResult();
-
-  const found = await verifyMark(row);
-  // Reserve: finner StreamBIM likevel ikke enkeltobjektet, velg og fly dit direkte (virker uten søk).
-  if (single && found === 0) await selectSingleObject(row, { fly: zoom });
-  return found;
+function groupRule(row) {
+  return guidSearchRule(row.guids, buildingId || row.building);
 }
 
-/** Velger ett objekt direkte (StreamBIM sin vanlige objektvalg-markering) og flyr eventuelt
- *  kameraet dit. Reserve for enkeltobjekter når søket ikke finner dem. */
-async function selectSingleObject(row, { fly }) {
-  const guid = row.guids[0];
-  await StreamBIM.API.highlightObject(guid);
-  if (fly) await StreamBIM.API.gotoObject(guid);
+/** StreamBIM-kall som endrer 3D-visningen kjøres ett om gangen, i klikkrekkefølge. Kommer
+ *  det et nytt klikk mens et kall venter, hoppes det ventende over: hvert kall setter hele
+ *  visningen på nytt, så bare siste klikk betyr noe. Uten dette kunne et dobbeltklikk (velg +
+ *  nullstill) flette kallene i hverandre, og 3D endte med markering mens lista var uten valg. */
+const SKIPPED = Symbol("hoppet over");
+let viewQueue = Promise.resolve();
+let latestViewTask = 0;
+function updateView(task) {
+  const id = ++latestViewTask;
+  const run = viewQueue.then(() => (id === latestViewTask ? task() : SKIPPED));
+  viewQueue = run.catch(() => {});
+  return run;
+}
+
+/** Markerer hele postnr-gruppen og toner ned eller skjuler resten. Rekkefølgen er bygget på
+ *  StreamBIM sin egen kode (se docs, «Slik virker API-et egentlig»):
+ *  1. colorCodeObjects({}) = resetIfcSearch: tømmer søk og visningsmodus. Uten dette kjørte
+ *     setSearchVisualizationMode (reloadSearch) det FORRIGE søket parallelt med det nye, og
+ *     bare første klikk virket (live 2026-10-23).
+ *  2. FADED er standard etter reset; andre moduser settes før det nye søket.
+ *  3. applyObjectSearch svarer først når søket er ferdig, så zoomToSearchResult etterpå
+ *     rammer inn akkurat gruppen. Markeringen får StreamBIM sin grønne søkefarge: denne
+ *     StreamBIM-versjonen ignorerer fargene i colorCodeObjects, så et vanlig søk gir det samme.
+ *  Returnerer hvor mange av objektene StreamBIM fant (verifyMark). */
+async function markGroup(row, { zoom }) {
+  await StreamBIM.API.colorCodeObjects({});
+  if (visualizationMode() !== "FADED") await StreamBIM.API.setSearchVisualizationMode(visualizationMode());
+  await StreamBIM.API.applyObjectSearch({ rules: [[groupRule(row)]] });
+  if (zoom) await StreamBIM.API.zoomToSearchResult();
+  return verifyMark(row);
 }
 
 /** Lesende kontroll (endrer ingenting i 3D): finner StreamBIM alle objektene i gruppen med
  *  samme regel som markeringen? Svaret havner i loggen, og finner den for få, vises en
- *  melding slik at en markering som ikke tok ikke går ubemerket hen. Returnerer antall
- *  funnet, eller null hvis kontrollen feilet. */
+ *  melding slik at en markering som ikke tok ikke går ubemerket hen (går den bra, vises
+ *  meldingen fra lastingen igjen). Returnerer antall funnet, eller null hvis kontrollen feilet. */
 async function verifyMark(row) {
   try {
-    const hits = await StreamBIM.API.findObjects({
-      rules: [[guidSearchRule(row.guids, buildingId || row.building)]],
-      limit: SEARCH_LIMIT,
-    });
+    const hits = await StreamBIM.API.findObjects({ rules: [[groupRule(row)]], limit: SEARCH_LIMIT });
     const found = Array.isArray(hits) ? hits.length : 0;
-    if (found < row.objects) {
-      showNote(
-        `StreamBIM fant bare ${found} av ${row.objects} objekter for postnr ${row.postnr}, så markeringen er ` +
-        "trolig ufullstendig. Åpne «Feilsøking» og kopier loggen."
-      );
-    }
+    showNote(
+      found < row.objects
+        ? `StreamBIM fant bare ${found} av ${row.objects} objekter for postnr ${row.postnr}, så markeringen er ` +
+            "trolig ufullstendig. Åpne «Feilsøking» og kopier loggen."
+        : listNote
+    );
     return found;
   } catch (err) {
     log(`Kontroll av markering feilet: ${errText(err)}`);
@@ -296,26 +340,35 @@ async function verifyMark(row) {
   }
 }
 
-/** Liste → modell: gul markering av alle stenger med samme postnr, og zoom dit. */
-async function selectAndZoom(row) {
-  selectedKey = row.postnr;
-  renderTable();
+/** Markerer gruppen i 3D og logger utfallet. `how` beskriver klikket i loggen. */
+async function showGroup(row, { zoom, how }) {
   try {
-    const found = await markGroup(row, { zoom: true });
-    log(`Valgt postnr ${row.postnr} (${row.count} stk i ${row.objects} objekter), markert og zoomet. StreamBIM fant ${found ?? "?"}/${row.objects} objekter.`);
+    const found = await updateView(() => markGroup(row, { zoom }));
+    if (found === SKIPPED) return;
+    log(
+      `${how} postnr ${row.postnr} (${row.count} stk i ${row.objects} objekter), markert${zoom ? " og zoomet" : ""}. ` +
+      `StreamBIM fant ${found ?? "?"}/${row.objects} objekter.`
+    );
   } catch (err) {
-    log("Feil ved valg/zoom: " + errText(err));
+    log("Feil ved markering: " + errText(err));
     showNote(`Kunne ikke markere postnr ${row.postnr}: ${errText(err)}`);
   }
 }
 
-/** Klikk på valgt rad igjen: tomt fargekart fjerner fargene og søket (nedtoningen). */
+/** Liste → modell: marker alle stenger med samme postnr, og zoom dit. */
+function selectAndZoom(row) {
+  selectedKey = row.postnr;
+  renderTable();
+  return showGroup(row, { zoom: true, how: "Valgt" });
+}
+
+/** Klikk på valgt rad igjen: tomt fargekart = resetIfcSearch, som fjerner søket og nedtoningen. */
 async function clearSelection() {
   selectedKey = null;
   renderTable();
   try {
-    await StreamBIM.API.colorCodeObjects({});
-    log("Valg nullstilt.");
+    const result = await updateView(() => StreamBIM.API.colorCodeObjects({}));
+    if (result !== SKIPPED) log("Valg nullstilt.");
   } catch (err) {
     log("Feil ved nullstilling: " + errText(err));
   }
@@ -338,9 +391,9 @@ function loadRestMode() {
   }
 }
 
-/** Modell → liste: et klikk i 3D-vieweren (StreamBIM sitt pickedObject) gjør alle stenger
- *  med samme postnr gule, toner ned resten og flytter raden øverst — uten å flytte
- *  kameraet, siden brukeren allerede ser der. pickedObject kommer kun fra brukerklikk,
+/** Modell → liste: et klikk i 3D-vieweren (StreamBIM sitt pickedObject) markerer alle stenger
+ *  med samme postnr, toner ned resten og flytter raden øverst — uten å flytte kameraet,
+ *  siden brukeren allerede ser der. pickedObject kommer kun fra brukerklikk,
  *  ikke fra våre egne kall, så det trengs ingen vakt mot tilbakekobling. */
 async function handlePickedObject(result) {
   const guid = result && result.guid;
@@ -356,15 +409,11 @@ async function handlePickedObject(result) {
 
   rows = moved.rows;
   selectedKey = moved.row.postnr;
+  // Skjuler søkefeltet raden, tømmes det, så den klikkede raden synes øverst.
+  if (!filterRows([moved.row], filterInput.value).length) filterInput.value = "";
   renderTable();
   tableContainer.scrollTop = 0;
-  try {
-    const found = await markGroup(moved.row, { zoom: false });
-    log(`Postnr ${moved.row.postnr} klikket i 3D-viewer (${moved.row.count} stk i ${moved.row.objects} objekter), markert. StreamBIM fant ${found ?? "?"}/${moved.row.objects} objekter.`);
-  } catch (err) {
-    log("Feil ved markering: " + errText(err));
-    showNote(`Kunne ikke markere postnr ${moved.row.postnr}: ${errText(err)}`);
-  }
+  await showGroup(moved.row, { zoom: false, how: "3D-klikk på" });
 }
 
 /** Viser hvilket egenskapsnavn hver kolonne traff på, pluss hele getObjectInfo()-svaret —
@@ -383,51 +432,6 @@ async function updateDebugPanel(guid) {
   } catch (err) {
     debugOutput.value = `getObjectInfo(${guid}) feilet: ${errText(err)}`;
   }
-}
-
-async function countResult(call) {
-  try {
-    const result = await call();
-    return Array.isArray(result) ? result.length : result;
-  } catch (err) {
-    return `feil: ${errText(err)}`;
-  }
-}
-
-/** Kartlegger om StreamBIM sitt findObjects filtrerer når reglene sendes slik StreamBIM
- *  selv gjør det ({rules: [[regel]]} på toppnivå, med buildingId). Et filtrerende søk gir
- *  omtrent gruppens antall objekter, et som ignorerer filteret gir alle. Bruker bare
- *  findObjects, som ikke endrer noe i 3D. Svaret avgjør om lista kan lastes raskere i
- *  store modeller, og kamera + utstrekning er grunnlag for egen innramming. */
-async function runSearchTest() {
-  const row = rows.find((r) => r.postnr === selectedKey && r.searchKey) || rows.find((r) => r.searchKey);
-  if (!row) {
-    debugOutput.value = "Ingen rad med postnr å teste med. Trykk «Oppdater liste» først.";
-    return;
-  }
-  debugOutput.value = `Tester søk med postnr ${row.postnr}…`;
-  const find = (query) => countResult(() => StreamBIM.API.findObjects({ ...query, limit: SEARCH_LIMIT }));
-  const building = buildingId || row.building;
-  const rule = postnrSearchRule(row);
-  const kindRule = (value) => ({ rules: [[{ buildingId: building, propKey: "@kind", propValue: value }]] });
-  const result = {
-    postnr: row.postnr,
-    forventetObjekter: row.objects,
-    armeringsobjekterILista: rebarObjectCount,
-    buildingId: building,
-    kamera: await StreamBIM.API.getCameraState().catch((err) => `feil: ${errText(err)}`),
-    gruppeBbox: unionBbox(row.guids.map((guid) => bboxByGuid.get(guid))),
-    findObjects: {
-      nøkkelVerdi_kindReinforcingBar: await find({ key: "@kind", value: "Reinforcing bar" }),
-      regel_kindReinforcingBar: await find(kindRule("Reinforcing bar")),
-      regel_kindFinnesIkke: await find(kindRule("Finnes-ikke-xyz")),
-      regel_postnrMedPset: await find({ rules: [[{ ...rule, buildingId: building }]] }),
-      regel_postnrUtenPset: await find({ rules: [[{ buildingId: building, propKey: row.searchKey, propValue: row.postnr }]] }),
-      regel_guidsIGruppen: await find({ rules: [[guidSearchRule(row.guids, building)]] }),
-    },
-  };
-  debugOutput.value = JSON.stringify({ søketest: result, regel: rule }, null, 2);
-  log(`Søketest ferdig for postnr ${row.postnr}.`);
 }
 
 /** Kopierer rådata + logg. navigator.clipboard er ofte sperret i en iframe på et annet
@@ -454,11 +458,26 @@ debugToggle.addEventListener("click", () => {
   debugPanel.classList.toggle("show");
   if (debugPanel.classList.contains("show") && lastPickedGuid) updateDebugPanel(lastPickedGuid);
 });
-searchTestBtn.addEventListener("click", runSearchTest);
 restModeSelect.addEventListener("change", () => {
   saveRestMode();
-  // Gjelder med en gang for gruppen som er valgt nå.
-  if (selectedKey !== null) StreamBIM.API.setSearchVisualizationMode(visualizationMode()).catch(() => {});
+  // Gjelder med en gang: marker valgt gruppe på nytt med ny visning (kameraet blir stående).
+  const row = rows.find((r) => r.postnr === selectedKey);
+  if (row) showGroup(row, { zoom: false, how: "Ny visning for" });
+});
+filterInput.addEventListener("input", () => {
+  renderTable();
+  tableContainer.scrollTop = 0;
+});
+filterInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    // Enter velger første treff, så «Fd1500» + Enter markerer og zoomer.
+    const first = filterRows(rows, filterInput.value)[0];
+    if (first && first.postnr !== selectedKey) selectAndZoom(first);
+  } else if (event.key === "Escape" && filterInput.value) {
+    event.preventDefault();
+    filterInput.value = "";
+    renderTable();
+  }
 });
 copyBtn.addEventListener("click", () => {
   copyDebug();
@@ -507,8 +526,6 @@ async function main() {
     showNote("");
     log("StreamBIM.connectToParent() lyktes.");
     StreamBIM.API.setShowExpandButton(true).catch((err) => log("setShowExpandButton feilet: " + errText(err)));
-    buildingId = await StreamBIM.API.getBuildingId().catch(() => null);
-    log(`Bygning (getBuildingId): ${buildingId ?? "ukjent — bruker bygning fra objektinfo"}`);
     await fetchRebarList();
   } catch (err) {
     clearTimeout(watchdog);

@@ -24,15 +24,12 @@
     antall: ["Antall", /^K\d+\s+Antall\b/i],
   };
 
-  /** Søkene som til sammen finner kandidater for armering (unionen av alle treff). Ekte
-   *  StreamBIM har `@kind` = "Reinforcing bar" (lesbar tekst med mellomrom). I første
-   *  live-test ga HVER søkeverdi de samme 255 objektene, også "IfcReinforcingMesh" og
-   *  "Common Type" (som ikke finnes) — findObjects filtrerer altså ikke slik README sier.
-   *  Derfor sjekkes @kind på hvert objekt etterpå med isRebarObject(). */
-  const REBAR_SEARCHES = [
-    { label: "IFC-klasse (@kind)", key: "@kind", values: ["Reinforcing bar", "Reinforcing mesh", "ReinforcingBar", "ReinforcingMesh"] },
-    { label: "Common Type", key: "Common Type", values: ["REINFORCINGBAR", "REINFORCINGMESH"] },
-  ];
+  /** @kind-verdiene armeringen søkes opp med. StreamBIM lager @kind fra IFC-klassen som
+   *  lesbar tekst ("Reinforcing bar"), uansett hvilket program som eksporterte (bekreftet
+   *  for både Revit-eksport og eksport med kodede navn). */
+  const REBAR_KINDS = ["Reinforcing bar", "Reinforcing mesh"];
+  /** En @kind som ikke finnes. Svaret på den viser hvordan «søket filtrerte ikke» ser ut. */
+  const UNKNOWN_KIND = "Sok Armering finnes ikke";
 
   const MISSING_POSTNR = "(mangler postnr)";
 
@@ -132,12 +129,6 @@
     return faces.some((n) => n > 0);
   }
 
-  /** Pset-delen av en "Pset~Egenskap"-nøkkel, eller null for flate navn. */
-  function psetOf(hit) {
-    const parts = hit.key.split("~");
-    return parts.length > 1 ? parts.slice(0, -1).join("~") : null;
-  }
-
   /** Stenger i ett IFC-objekt: Antall-egenskapen når den er et positivt tall, ellers 1. */
   function barsIn(properties) {
     const antall = Number(valueOf(findProperty(properties, FIELDS.antall)));
@@ -145,8 +136,8 @@
   }
 
   /** Grupperer [{guid, properties, building}] per posisjonsnummer. `count` er antall
-   *  stenger (sum av Antall), `objects` antall IFC-objekter. `searchKey`/`searchPset`/
-   *  `building` brukes til å søke opp gruppen for zoom. Diameter/lengde/formkode/segment
+   *  stenger (sum av Antall), `objects` antall IFC-objekter. `building` er reserve for
+   *  søkeregelen når getBuildingId() ikke svarer. Diameter/lengde/formkode/segment
    *  tas fra første objekt i gruppen (kjent begrensning: avvikende verdier innen samme
    *  postnr vises ikke). */
   function groupRebar(items) {
@@ -162,8 +153,6 @@
       if (!groups.has(key)) {
         groups.set(key, {
           postnr: key,
-          searchKey: postnrHit ? postnrHit.name : null,
-          searchPset: postnrHit ? psetOf(postnrHit) : null,
           building,
           diameter: valueOf(findProperty(properties, FIELDS.diameter)),
           lengde: valueOf(findProperty(properties, FIELDS.lengde)),
@@ -187,43 +176,103 @@
     return { rows, missingPostnr, missing3d };
   }
 
-  /** Søkeregel for en postnr-gruppe i formatet StreamBIM selv bruker (lest i StreamBIM sin
-   *  kode): findObjects/applyObjectSearch tar `{rules: [[regel]]}` på TOPPNIVÅ, der regel
-   *  er {buildingId, psetName, propKey, propValue}. Brukes av «Test søk». */
-  function postnrSearchRule(row) {
-    if (!row.searchKey || row.postnr === MISSING_POSTNR) return null;
-    return {
-      ...(row.building ? { buildingId: row.building } : {}),
-      ...(row.searchPset ? { psetName: row.searchPset } : {}),
-      propKey: row.searchKey,
-      propValue: row.postnr,
-    };
-  }
-
-  /** Regel for «nettopp disse objektene». Flere objekter: samme «@guid in a|b|c» som StreamBIM
-   *  selv bygger i colorCodeObjects. ÉTT objekt: vanlig likhet uten operator, for «in» med bare
-   *  én verdi fant ingenting live (0 av 1 objekter for hver enkeltobjekt-gruppe, mens 2+ ga N/N).
-   *  Likhet er formen StreamBIM bruker for rom (searchForSpaces). Brukes med applyObjectSearch,
-   *  som først svarer når søket er ferdig, slik at zoomToSearchResult treffer riktig gruppe. */
+  /** Regel for «nettopp disse objektene», i formatet StreamBIM selv bruker: findObjects og
+   *  applyObjectSearch tar `{rules: [[regel]]}` på toppnivå. Flere objekter: «@guid in a|b|c»,
+   *  som StreamBIM bygger i colorCodeObjects. ÉTT objekt: vanlig likhet uten operator, for «in»
+   *  med bare én verdi fant ingenting live (0 av 1 objekter for hver enkeltobjekt-gruppe, mens
+   *  2+ ga N/N). Likhet er formen StreamBIM bruker for rom (searchForSpaces). */
   function guidSearchRule(guids, buildingId) {
     const base = { ...(buildingId ? { buildingId } : {}), propKey: "@guid" };
     if (guids.length === 1) return { ...base, propValue: guids[0] };
     return { ...base, operator: "in", propValue: guids.join("|") };
   }
 
-  /** {guid: farge} for colorCodeObjects(). StreamBIM farger objektene OG gjør dem til
-   *  aktivt søk, så resten kan tones ned med setSearchVisualizationMode("FADED"). Fargen
-   *  leses av three.js (new Color(...)), så den må ha "#". */
-  function colorCodeMap(guids, color) {
-    return Object.fromEntries(guids.map((guid) => [guid, color]));
+  /** Har de to listene nøyaktig de samme GUID-ene (rekkefølgen spiller ingen rolle)? */
+  function sameGuidSet(a, b) {
+    const set = new Set(a);
+    return set.size === new Set(b).size && b.every((guid) => set.has(guid));
   }
 
-  /** Samlet utstrekning for en gruppe fra StreamBIM sine bbox-er
-   *  [minX, minY, minZ, maxX, maxY, maxZ]; null hvis ingen er brukbare. */
-  function unionBbox(boxes) {
-    const valid = boxes.filter((b) => Array.isArray(b) && b.length === 6 && b.every(Number.isFinite));
-    if (valid.length === 0) return null;
-    return [0, 1, 2, 3, 4, 5].map((i) => (i < 3 ? Math.min : Math.max)(...valid.map((b) => b[i])));
+  /** Velger kandidatene til armering ut fra ett findObjects-svar per @kind-verdi
+   *  (`hitsByKind`, {kind: guid[]}, null = søket feilet). StreamBIM gir ALT (opp til limit)
+   *  for en verdi som ikke finnes i modellen: live ga «Reinforcing bar» 2125 av 3624 objekter,
+   *  «Reinforcing mesh» alle 3624. Et svar med nøyaktig de samme objektene som for
+   *  UNKNOWN_KIND (`unknownHits`) filtrerte altså ikke, og hoppes over. Filtrerte ingen,
+   *  brukes alt; @kind sjekkes uansett per objekt etterpå (isRebarObject). Returnerer
+   *  {guids, kinds}, der `kinds` er @kind-verdiene som filtrerte. */
+  function rebarCandidates(hitsByKind, unknownHits) {
+    const filtered = Object.entries(hitsByKind).filter(
+      ([, hits]) => Array.isArray(hits) && !sameGuidSet(hits, unknownHits || [])
+    );
+    const sources = filtered.length ? filtered.map(([, hits]) => hits) : [unknownHits || []];
+    return { guids: [...new Set(sources.flat())], kinds: filtered.map(([kind]) => kind) };
+  }
+
+  /** Søkefeltet: radene der postnr inneholder teksten, uten forskjell på store og små
+   *  bokstaver. Tom tekst gir alle radene. */
+  function filterRows(rows, query) {
+    const wanted = String(query ?? "").trim().toLowerCase();
+    if (!wanted) return rows;
+    return rows.filter((row) => String(row.postnr).toLowerCase().includes(wanted));
+  }
+
+  /** Gjør om svaret fra getObjectInfoForSearch til [{guid, properties}]. StreamBIM svarer med
+   *  sin søkeeksport (/ifc-searches/export/json, lest i StreamBIM sin kode):
+   *  {header: [{id}], data: [{GUID, "Pset~Egenskap": verdi, …}]}. "Pset~Egenskap"-feltene
+   *  blir nestede Pset-objekter, slik objectProperties lager dem av getObjectInfo, så
+   *  findProperty og hasGeometry leser begge likt. Rader uten GUID droppes. */
+  function exportItems(response) {
+    const data = response && Array.isArray(response.data) ? response.data : [];
+    return data.filter((row) => isPlainObject(row) && hasValue(row.GUID)).map((row) => {
+      const properties = {};
+      for (const [key, value] of Object.entries(row)) {
+        const split = key.indexOf("~");
+        if (split < 0) {
+          properties[key] = value;
+          continue;
+        }
+        const pset = key.slice(0, split);
+        if (!isPlainObject(properties[pset])) properties[pset] = {};
+        properties[pset][key.slice(split + 1)] = value;
+      }
+      return { guid: String(row.GUID), properties };
+    });
+  }
+
+  /** Stikkprøvene som sjekkes mot getObjectInfo: første objekt for hver måte postnr er
+   *  navngitt på (én per eksport/modell, pluss dem uten postnr), og det midterste og siste. */
+  function exportSamples(items) {
+    const MAX_SAMPLES = 6;
+    const byScheme = new Map();
+    for (const item of items) {
+      const hit = findProperty(item.properties, FIELDS.postnr);
+      const scheme = hit ? hit.key : null;
+      if (!byScheme.has(scheme)) byScheme.set(scheme, item);
+    }
+    const picks = [...byScheme.values(), items[Math.floor(items.length / 2)], items[items.length - 1]];
+    return [...new Set(picks.filter(Boolean))].slice(0, MAX_SAMPLES);
+  }
+
+  function sameValue(a, b) {
+    if (String(a) === String(b)) return true;
+    const [na, nb] = [Number(a), Number(b)];
+    return hasValue(a) && hasValue(b) && Number.isFinite(na) && na === nb;
+  }
+
+  /** Kolonnene der eksporten mangler en verdi som getObjectInfo har, eller har en annen
+   *  verdi, pluss "3D-geometri" hvis bare getObjectInfo vet om objektet har 3D. Tom liste =
+   *  eksporten kan brukes. Eksporten kan ha færre felt enn getObjectInfo (antallet felt kan
+   *  være begrenset), og det er ikke dokumentert. */
+  function exportGaps(exportProperties, infoProperties) {
+    const gaps = Object.keys(FIELDS).filter((field) => {
+      const expected = findProperty(infoProperties, FIELDS[field]);
+      if (!expected) return false;
+      const actual = findProperty(exportProperties, FIELDS[field]);
+      return !actual || !sameValue(actual.value, expected.value);
+    });
+    const geometry = hasGeometry(infoProperties);
+    if (geometry !== null && hasGeometry(exportProperties) !== geometry) gaps.push("3D-geometri");
+    return gaps;
   }
 
   /** Returnerer en ny sortert liste. Tall sorteres numerisk, resten alfabetisk; tomme
@@ -288,18 +337,22 @@
 
   return {
     FIELDS,
-    REBAR_SEARCHES,
+    REBAR_KINDS,
+    UNKNOWN_KIND,
     MISSING_POSTNR,
     flattenProperties,
     findProperty,
     objectProperties,
     isRebarObject,
     groupRebar,
-    postnrSearchRule,
     hasGeometry,
     guidSearchRule,
-    colorCodeMap,
-    unionBbox,
+    rebarCandidates,
+    sameGuidSet,
+    filterRows,
+    exportItems,
+    exportSamples,
+    exportGaps,
     sortRows,
     formatLengde,
     moveToTop,

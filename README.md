@@ -19,15 +19,14 @@ Lister all armering i modellen gruppert per posisjonsnummer:
   - Valget **Resten av modellen ved valg** bestemmer hva som skjer med alt annet: **tones ned** (standard), **skjules** (best i tett, flerfarget armering) eller **vises som før**. Valget huskes i nettleseren, og det gjelder med en gang for gruppen som er valgt.
   - Klikk på valgt rad igjen for å nullstille.
 - **Modell → liste:** klikk en stang i 3D. Alle stenger med samme postnr markeres, resten av modellen tones ned, og raden flyttes øverst. Kameraet blir stående.
-- Lista lastes automatisk når widgeten åpnes. «Oppdater liste» henter den på nytt.
+- **Søk postnr:** skriv i søkefeltet over lista for å vise bare postnr som inneholder teksten, for eksempel «Fd15». Telleren viser hvor mange som passer. **Enter** markerer og zoomer til første treff, og **Esc** tømmer feltet. Klikker du en stang i 3D som søket skjuler, tømmes feltet, så raden synes øverst.
+- Lista lastes automatisk når widgeten åpnes. «Oppdater liste» henter den på nytt. Widgeten henter bare egenskaper for armeringen, så andre modeller i samme bygning gjør ikke lastingen tregere. Egenskapene hentes i ett kall når StreamBIM tillater det, ellers ett objekt om gangen. Loggen under «Feilsøking» viser hvilken vei som ble brukt og hvor lang tid det tok.
 - Tekla-navn (`Posisjonsnummer`, `Diameter jern` …), RIB-navn (`ARM.07 - Posnr`, `ARM.08 - Stangdiameter` …), Revit-eksport (`Posisjonsnummer`, `Diameter`, `Antall` …) og eksport med kode foran navnet (`K200 Pos nr`, `K201 Stangdiameter` …) støttes samtidig.
-- **Feilsøking: inspiser valgt element** nederst viser hvilke egenskapsnavn widgeten fant på sist klikkede element, pluss hele svaret fra StreamBIM.
-  - **Kopier rådata og logg** kopierer alt i én operasjon.
-  - **Test søk** måler hvilke StreamBIM-søk som faktisk filtrerer, med postnummeret som er valgt.
+- **Feilsøking: inspiser valgt element** nederst viser hvilke egenskapsnavn widgeten fant på sist klikkede element, pluss hele svaret fra StreamBIM. **Kopier rådata og logg** kopierer alt i én operasjon.
 
 Kjente begrensninger:
 
-- Markerte stenger blir **grønne**, StreamBIMs egen søkefarge, og StreamBIMs søkelinje («Fremhever N objekter») vises øverst. Widgeten ber om gult, men denne StreamBIM-versjonen ignorerer fargen (se [docs](docs/streambim-widget-api.md)). X-en i søkelinja fjerner markeringen.
+- Markerte stenger blir **grønne**, StreamBIMs egen søkefarge, og StreamBIMs søkelinje («Fremhever N objekter») vises øverst. En widget kan ikke velge markeringsfarge i denne StreamBIM-versjonen (se [docs](docs/streambim-widget-api.md)). X-en i søkelinja fjerner markeringen.
 - Den viser armering i **hele modellen**, ikke bare det som er synlig. StreamBIM har ikke noe filter for «kun synlige».
 - Zoomen rammer inn nøyaktig objektene i gruppen. Er gruppen spredt utover modellen (for eksempel bøyler langs alle kantbjelkene), blir innrammingen tilsvarende vid.
 

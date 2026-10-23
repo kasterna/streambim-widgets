@@ -34,7 +34,7 @@ README-en stemmer ikke på flere punkter. Dette er lest i `app.streambim.com/web
 | `highlightObject(guid)` | highlight | **Velger** objektet (`selectObject`). Alle søk og fargekoder fjerner valget (`unselectObjects`). |
 | `findObjects(q)` | `{key, value}` | Bygger `{rules: q.rules \|\| [[{propKey: q.key, propValue: q.value, buildingId: <brukerinnstilling>}]]}`. **`rules` leses på toppnivå.** Returnerer GUID-liste. |
 | `applyObjectSearch(q)` | returnerer `guid[]` | Samme regelbygging som over, kjører StreamBIM sitt søke-highlight og **returnerer bare `true`**. `filter.rules` blir ignorert. |
-| `getObjectInfoForSearch(q)` | | Leser regler fra **`q.filter.rules`** (eller `q.filter.key/value`), altså et annet sted enn de to over. |
+| `getObjectInfoForSearch(q)` | | Leser regler fra **`q.filter.rules`** (eller `q.filter.key/value`), altså et annet sted enn de to over. Lager søket på serveren (som `findObjects`, uten å endre 3D-visningen) og returnerer StreamBIM sin **søkeeksport** (`/ifc-searches/export/json`): `{header: [{id, pset, datatype}], data: [{GUID: "…", Name: "…", "Pset~Egenskap": verdi, …}]}`, én rad per objekt. `q.page.limit` er maks 10000 (standard 1000), `q.page.skip` blar. `q.fieldUnion: true` gir alle egenskapene; uten den får radene bare feltene alle objektene har felles. Widget-API-et kan ikke sette `fieldLimit`, så om eksporten kutter felt i store søk, er ukjent. Se «Hurtighenting» under. |
 | `colorCodeObjects({guid: farge})` | fargekod | Farger objektene **og** gjør dem til aktivt søk (`@guid in a\|b\|c`). Tomt kart fjerner farger og søk. |
 | Farge | hex | Leses med three.js `new Color(...)`. Bruk **`"#rrggbb"`**, med `#`. **Men fargen vises ikke:** `startSearchMode` krever at fargekoden har en `type`, og det har ikke en GUID-fargekode. StreamBIM faller da tilbake til sin grønne søkefarge (`COLOR_CONSTANTS.highlight` = `[0, 0.9, 0]`) og logger «No color coding specified for color code visualization mode» i konsollen. Bekreftet live: stengene ble grønne. Ingen widget-funksjon kan sette egen markeringsfarge i denne StreamBIM-versjonen. |
 | `setSearchVisualizationMode(m)` | | Setter hvordan objekter *utenfor* søket vises: `FADED` gir redusert opasitet, `HIDDEN` skjuler dem. Fargekodede objekter tegnes alltid fullt. |
@@ -49,19 +49,27 @@ README-en stemmer ikke på flere punkter. Dette er lest i `app.streambim.com/web
 **Oppskrift for «marker en gruppe og ton ned resten»**, som brukes av Søk Armering. Rekkefølgen er viktig:
 
 ```js
-await API.colorCodeObjects({});                                  // 1. nullstill (resetIfcSearch): søk, farger, modus
-if (!fade) await API.setSearchVisualizationMode("ORIGINAL");     // 2. bare ved «ikke ton ned»; FADED er standard
-await API.colorCodeObjects(Object.fromEntries(guids.map((g) => [g, "#ffd400"])));   // 3. farg + søk
-// 4. zoom (valgfritt): applyObjectSearch svarer først når søket er ferdig
-await API.applyObjectSearch({ rules: [[{ buildingId, propKey: "@guid", operator: "in", propValue: guids.join("|") }]] });
-await API.zoomToSearchResult();
+await API.colorCodeObjects({});                                   // 1. nullstill (resetIfcSearch): søk, farger, modus
+if (mode !== "FADED") await API.setSearchVisualizationMode(mode); // 2. FADED er standard etter nullstillingen
+await API.applyObjectSearch({ rules: [[regel]] });                // 3. søk; svarer først når søket er ferdig
+await API.zoomToSearchResult();                                   // 4. zoom (valgfritt)
+// regel for flere objekter: { buildingId, propKey: "@guid", operator: "in", propValue: guids.join("|") }
+// regel for ETT objekt:     { buildingId, propKey: "@guid", propValue: guid }   («in» med én verdi finner ingenting)
 ```
 
-**Enkeltobjekt (live, 2026-10-23) — årsak funnet:** regelen `{propKey: "@guid", operator: "in", propValue: "<ett guid>"}` finner **ingenting** når den bare har ÉN verdi. Loggen viste «StreamBIM fant 0/1 objekter» for hver gruppe med ett objekt, mens `in` med to eller flere guid ga N/N (3/3, 42/42, 2/2). `colorCodeObjects` søker alltid med `in`, så et fargekart med bare én nøkkel gir ingen markering, ingen nedtoning og ingen skjuling. Løsningen er vanlig likhet uten operator for ett objekt, `{propKey: "@guid", propValue: "<guid>"}`, som er formen StreamBIM bruker for rom. Widgeten bruker da `applyObjectSearch` med likhetsregelen i stedet for `colorCodeObjects`. Et lesende `findObjects` med samme regel kontrollerer treffene («StreamBIM fant N/M objekter»), og finner den 0 av 1, velger og flyr widgeten til objektet direkte (`highlightObject` og `gotoObject`). Et søk tegnes ved at StreamBIM henter søkenoder fra `/octtree/search-nodes/<bygning>/<søkeId>`. Feiler det kallet, står «Failure on search-nodes endpoint query» i nettleserkonsollen.
+Fram til versjon 2026-10-23.12 var steg 3 `colorCodeObjects({guid: "#ffd400"})`. Fargen ignoreres likevel (se tabellen), og `colorCodeObjects` søker alltid med `in`, som ikke virker for ett objekt. Et vanlig søk gir derfor samme visning for alle gruppestørrelser, og fra .13 bruker widgeten bare det. Begynner en senere StreamBIM-versjon å vise fargene, er `colorCodeObjects` med to eller flere objekter veien til egen markeringsfarge.
 
-Resultat live (versjon 2026-10-23.6): gruppen markeres, resten tones ned, og zoomen treffer riktig. Det virker også ved flere klikk etter hverandre. Fargen blir likevel StreamBIMs grønne, og StreamBIMs egen søkelinje («Fremhever N objekter», med X for å avslutte) vises øverst. Begge deler er StreamBIMs standard for aktive søk, og en widget kan ikke endre det.
+**Enkeltobjekt (live, 2026-10-23) — årsak funnet:** regelen `{propKey: "@guid", operator: "in", propValue: "<ett guid>"}` finner **ingenting** når den bare har ÉN verdi. Loggen viste «StreamBIM fant 0/1 objekter» for hver gruppe med ett objekt, mens `in` med to eller flere guid ga N/N (3/3, 42/42, 2/2). `colorCodeObjects` søker alltid med `in`, så et fargekart med bare én nøkkel gir ingen markering, ingen nedtoning og ingen skjuling. Løsningen er vanlig likhet uten operator for ett objekt, `{propKey: "@guid", propValue: "<guid>"}`, som er formen StreamBIM bruker for rom (bekreftet live i versjon .12). Etter hver markering kontrollerer et lesende `findObjects` med samme regel treffene: loggen viser «StreamBIM fant N/M objekter», og finner den for få, vises en melding over lista. Et søk tegnes ved at StreamBIM henter søkenoder fra `/octtree/search-nodes/<bygning>/<søkeId>`. Feiler det kallet, står «Failure on search-nodes endpoint query» i nettleserkonsollen.
+
+Resultat live (versjon 2026-10-23.6): gruppen markeres, resten tones ned, og zoomen treffer riktig. Det virker også ved flere klikk etter hverandre. Fra .12 virker det også for grupper med ett objekt. Fargen blir likevel StreamBIMs grønne, og StreamBIMs egen søkelinje («Fremhever N objekter», med X for å avslutte) vises øverst. Begge deler er StreamBIMs standard for aktive søk, og en widget kan ikke endre det.
 
 **Hvilke widget-funksjoner finnes faktisk** i denne StreamBIM-versjonen (fra koden): applyObjectSearch, colorCodeByProperty, colorCodeObjects, colorCodeSpaces, createObject, deHighlightAllObjects, deHighlightObject, findObjects, getAnnotatedFloorplan, getBuildingId, getCameraState, getFloors, getLayers, getMapImage, getObjectInfo, getObjectInfoForSearch, getSpaces, getUserEmail, getViewportState, goHome, gotoFloor, gotoObject, gotoSpace, hideGrids, hideObject, highlightObject, makeApiRequest, quickSearch, resetObjectSearch, setAuthToken, setCameraPosition, setCameraState, setExpanded, setLayers, setNavigationMode, setSearchVisualizationMode, setShowExpandButton, setSkyColor, setViewportState, showAllObjects, showGrids, showObject, takeScreenshot, valuesForObjectProperty, zoomToSearchResult. **Ikke** `colorCodeObjectsWithLegends`, `colorCodeSpacesWithLegends` eller `setStyles`, selv om README nevner dem.
+
+**Hurtighenting (Søk Armering fra versjon .13, ikke testet live ennå):** å hente `getObjectInfo` for 3624 objekter tok ca. 21 sekunder. Widgeten prøver derfor først `getObjectInfoForSearch({filter: {key: "@kind", value}, page: {limit: 10000}, fieldUnion: true})`, ett kall per `@kind` som filtrerte. Formatet er lest i StreamBIM sin kode, ikke dokumentert, så svaret kontrolleres før det brukes:
+1. Eksporten må ha nøyaktig de samme GUID-ene som `findObjects` ga.
+2. Stikkprøver (ett objekt per måte postnr er navngitt på, pluss det midterste og siste) sammenlignes med `getObjectInfo`, kolonne for kolonne og for 3D-geometri.
+
+Feiler noe, henter widgeten per objekt som før og logger grunnen. Loggen viser også hvilken vei som ble brukt og hvor lang tid lastingen tok («Hurtighenting: 2.3 s» eller «Henting per objekt: 12.0 s»). Filtrerte ingen `@kind`-søk (alle objektene i bygningen er armering, eller StreamBIM filtrerte ikke), brukes alltid henting per objekt, fordi eksportradene ikke har `@kind` å sortere på.
 
 **3D-geometri:** `getObjectInfo().groups` har en «Geometry»-gruppe med «Faces Hi»/«Faces Lo». Er de 0, finnes objektet i StreamBIMs data, men vises ikke i 3D, for eksempel etter en mangelfull IFC-import. Søk Armering teller og varsler om slike objekter.
 
@@ -91,7 +99,7 @@ Feil vi traff live før denne rekkefølgen:
 | `getProjectId()`, `getBuildingId()`, `getUserEmail()` | |
 | `findObjects({key, value, limit})` → `guid[]` | Enkelt søk på én egenskap. `key: '@kind'` = IFC-klassen uten `Ifc` (demoen bruker `'Door'`/`'Space'`) |
 | `getObjectInfo(guid)` → `ObjectInfo` | Formen er ikke dokumentert, men nå bekreftet live. Pset-egenskapene ligger i `groups`, ikke i `properties` (se «Bekreftet mot ekte StreamBIM») |
-| `getObjectInfoForSearch({filter, page, sort})` | Info for et helt søkeresultat i ett kall. Hvordan GUID-ene er koblet til resultatet er ukjent |
+| `getObjectInfoForSearch({filter, page, sort, fieldUnion})` | Egenskapene for et helt søkeresultat i ett kall, som søkeeksport med `GUID` per rad (se tabellen over) |
 | `applyObjectSearch(query, replace)` | Gjør søket til aktivt utvalg. Returnerer `true`, ikke `guid[]` (se «Slik virker API-et egentlig») |
 | `setSearchVisualizationMode('HIDDEN'\|'FADED'\|'ORIGINAL')` | Hvordan objekter utenfor søket vises |
 | `zoomToSearchResult()` | Rammer inn hele det aktive søket. Det er **den eneste måten å zoome til flere objekter på** |
@@ -139,11 +147,11 @@ Hele lista står i `node_modules/streambim-widget-api/README.md`. Den mest kompl
   ```
   Verdiene i `groups` er alltid tekst (`"12385"`, `"1"`), også tall.
 - `valueItem` er base64 av StreamBIM sin egen søkenøkkel, `ifcelement~KS_Armering~Posisjonsnummer~str~31`. StreamBIM adresserer altså egenskaper som *Pset + egenskap*.
-- **`findObjects({key, value})` er upålitelig som filter.** I den første, lille bygningen ga hver søkeverdi de samme 255 objektene, også «Common Type», som ikke finnes. I en bygning med to modeller ga `@kind = "Reinforcing bar"` riktig 2125 av 3624 objekter, mens verdier som ikke finnes i modellen («Reinforcing mesh», «ReinforcingBar», …) ga **alle 3624**. Sjekk derfor alltid `@kind` på objektene etterpå. Å hente info for 3624 objekter tok omtrent ett sekund.
+- **`findObjects({key, value})` er upålitelig som filter.** I den første, lille bygningen ga hver søkeverdi de samme 255 objektene, også «Common Type», som ikke finnes. I en bygning med to modeller ga `@kind = "Reinforcing bar"` riktig 2125 av 3624 objekter, mens verdier som ikke finnes i modellen («Reinforcing mesh», «ReinforcingBar», …) ga **alle 3624**. Det kan utnyttes: søk også på en verdi som garantert ikke finnes. Et svar med nøyaktig de samme objektene som det søket har ikke filtrert, og kan hoppes over. Søk Armering gjør det (`rebarCandidates`, fra versjon .13) og henter bare info for armeringen. Filtrerer ingen av søkene, brukes alt. Sjekk uansett `@kind` på objektene etterpå. Å hente info for alle 3624 objektene tok ca. 21 sekunder (10 kall samtidig), og det er derfor dette lønner seg.
 - **Flere modeller i samme bygning:** `getObjectInfo().document` skiller modellene (1000 og 1001 i det aktuelle prosjektet), og `layer` er filnavnet. Begge hadde `building: "1000"`, så ingen bygningsbytte var nødvendig. Et widget-søk dekker alle modellene i den aktive bygningen.
 - **Ulike eksportprogram gir ulike egenskapsnavn:** Revit-eksporten har `Posisjonsnummer`/`Diameter`/`Antall` i pset `KS_Armering`. En annen modell har pset `MERKNADER` med navn som `K200 Pos nr.` (med punktum til slutt), `K201 Stangdiameter`, `K202 Antall`, `K212 Formkode` og `K233 Kapplengde`. Verdiene er tekst (`"25"`, `"5045"`). Widgeten leser dem med regulære uttrykk i `FIELDS`.
-- **`highlightObject` ga ingen synlig markering** sammen med søk/zoom. Grunnen fant vi i StreamBIM-koden (se tabellen over): det er «velg», og søket fjerner valget. Siden versjon 2026-10-23.5 markeres grupper med `colorCodeObjects` i stedet.
-- Om `findObjects` filtrerer når reglene sendes på toppnivå med riktig `buildingId`, er **ikke bekreftet ennå**. «Test søk» i widgetens Feilsøking måler det. Gjør den det, kan lista lastes raskere i modeller med mye annet enn armering.
+- **`highlightObject` ga ingen synlig markering** sammen med søk/zoom. Grunnen fant vi i StreamBIM-koden (se tabellen over): det er «velg», og søket fjerner valget. Siden versjon 2026-10-23.5 markeres grupper med søk i stedet (først `colorCodeObjects`, fra .13 `applyObjectSearch`).
+- **`findObjects` med regler på toppnivå filtrerer.** Kontrollen etter hver markering viste 3/3, 42/42 og 2/2 objekter med `@guid`-regler, ikke alle objektene i bygningen.
 
 ### Testsiden mot app.streambim.com
 

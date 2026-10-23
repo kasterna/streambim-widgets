@@ -8,11 +8,16 @@ const {
   objectProperties,
   isRebarObject,
   groupRebar,
-  postnrSearchRule,
   hasGeometry,
   guidSearchRule,
-  colorCodeMap,
-  unionBbox,
+  REBAR_KINDS,
+  UNKNOWN_KIND,
+  rebarCandidates,
+  sameGuidSet,
+  filterRows,
+  exportItems,
+  exportSamples,
+  exportGaps,
   sortRows,
   formatLengde,
   moveToTop,
@@ -105,12 +110,10 @@ test.describe("K-coded property names (pset MERKNADER)", () => {
     }
   });
 
-  test("groups the bars by the K-coded postnr and remembers the search key", () => {
+  test("groups the bars by the K-coded postnr", () => {
     const { rows, missingPostnr } = groupRebar([{ guid: "g1", properties: objectProperties(kcoded), building: kcoded.building }]);
     assert.equal(missingPostnr, 0);
     assert.equal(rows[0].postnr, "Fx0001.01");
-    assert.equal(rows[0].searchKey, "K200 Pos nr.");
-    assert.equal(rows[0].searchPset, "MERKNADER");
     assert.equal(rows[0].diameter, "25");
     assert.equal(rows[0].lengde, "5045");
     assert.equal(rows[0].count, 1);
@@ -150,14 +153,12 @@ test.describe("isRebarObject", () => {
 });
 
 test.describe("groupRebar with real StreamBIM data", () => {
-  test("reads every column from groups and remembers pset and building for search", () => {
+  test("reads every column from groups and remembers the building for search", () => {
     const { rows } = groupRebar([{ guid: "g", properties: objectProperties(realInfo), building: realInfo.building }]);
     assert.deepEqual(
       { ...rows[0] },
       {
         postnr: "31",
-        searchKey: "Posisjonsnummer",
-        searchPset: "KS_Armering",
         building: "1000",
         diameter: "12",
         lengde: "12385",
@@ -169,29 +170,6 @@ test.describe("groupRebar with real StreamBIM data", () => {
         objects: 1,
       }
     );
-  });
-});
-
-test.describe("postnrSearchRule", () => {
-  test("builds StreamBIM's own rule format: building, pset, property and value", () => {
-    const row = { postnr: "31", searchKey: "Posisjonsnummer", searchPset: "KS_Armering", building: "1000" };
-    assert.deepEqual(postnrSearchRule(row), {
-      buildingId: "1000",
-      psetName: "KS_Armering",
-      propKey: "Posisjonsnummer",
-      propValue: "31",
-    });
-  });
-
-  test("leaves out buildingId and psetName when they are unknown", () => {
-    assert.deepEqual(postnrSearchRule({ postnr: "7", searchKey: "Posisjonsnummer", searchPset: null, building: undefined }), {
-      propKey: "Posisjonsnummer",
-      propValue: "7",
-    });
-  });
-
-  test("returns null for the missing-postnr group", () => {
-    assert.equal(postnrSearchRule({ postnr: MISSING_POSTNR, searchKey: null }), null);
   });
 });
 
@@ -248,31 +226,162 @@ test.describe("guidSearchRule", () => {
   });
 });
 
-test.describe("colorCodeMap", () => {
-  test("maps every guid to the same colour, as colorCodeObjects expects", () => {
-    assert.deepEqual(colorCodeMap(["a", "b"], "#ffd400"), { a: "#ffd400", b: "#ffd400" });
-    assert.deepEqual(colorCodeMap([], "#ffd400"), {});
+test.describe("rebarCandidates", () => {
+  // Live (2026-10-23): findObjects ga «Reinforcing bar» = 2125 av 3624 objekter, mens verdier
+  // som ikke finnes i modellen («Reinforcing mesh») ga ALLE 3624.
+  const everything = ["bar1", "bar2", "wall", "slab"];
+
+  test("searches StreamBIM's readable @kind values, and the unknown value is not one of them", () => {
+    assert.deepEqual(REBAR_KINDS, ["Reinforcing bar", "Reinforcing mesh"]);
+    assert.ok(!REBAR_KINDS.includes(UNKNOWN_KIND));
+  });
+
+  test("skips a search that returned the same as an unknown value (it did not filter)", () => {
+    assert.deepEqual(rebarCandidates({ bar: ["bar1", "bar2"], mesh: everything }, everything), {
+      guids: ["bar1", "bar2"],
+      kinds: ["bar"],
+    });
+  });
+
+  test("joins every search that filtered, without duplicates", () => {
+    assert.deepEqual(rebarCandidates({ bar: ["bar1", "bar2"], mesh: ["bar2", "mesh1"] }, everything), {
+      guids: ["bar1", "bar2", "mesh1"],
+      kinds: ["bar", "mesh"],
+    });
+  });
+
+  test("falls back to everything, with no filtering kind, when no search filtered", () => {
+    assert.deepEqual(rebarCandidates({ bar: everything, mesh: everything }, everything), { guids: everything, kinds: [] });
+  });
+
+  test("compares content, not size, so a result cut at the limit still counts as filtered", () => {
+    assert.deepEqual(rebarCandidates({ bar: ["bar1", "bar2"] }, ["wall", "slab"]).guids, ["bar1", "bar2"]);
+  });
+
+  test("ignores failed searches (null) and keeps everything a failed probe leaves", () => {
+    assert.deepEqual(rebarCandidates({ bar: null, mesh: ["bar1"] }, everything), { guids: ["bar1"], kinds: ["mesh"] });
+    assert.deepEqual(rebarCandidates({ bar: ["bar1"], mesh: everything }, null).guids, ["bar1", "bar2", "wall", "slab"]);
+    assert.deepEqual(rebarCandidates({ bar: null, mesh: null }, null), { guids: [], kinds: [] });
+  });
+
+  test("returns nothing when every search came back empty", () => {
+    assert.deepEqual(rebarCandidates({ bar: [], mesh: [] }, []), { guids: [], kinds: [] });
   });
 });
 
-test.describe("unionBbox", () => {
-  test("combines StreamBIM bboxes [minX, minY, minZ, maxX, maxY, maxZ]", () => {
-    assert.deepEqual(
-      unionBbox([
-        [0, 0, 0, 1, 1, 1],
-        [2, -1, 0.5, 3, 0.5, 2],
-      ]),
-      [0, -1, 0, 3, 1, 2]
-    );
+test.describe("sameGuidSet", () => {
+  test("is true for the same guids in any order", () => {
+    assert.equal(sameGuidSet(["a", "b"], ["b", "a"]), true);
+    assert.equal(sameGuidSet([], []), true);
   });
 
-  test("skips missing or malformed boxes", () => {
-    assert.deepEqual(unionBbox([null, [1, 1, 1, 2, 2, 2], [1, 2], undefined]), [1, 1, 1, 2, 2, 2]);
+  test("is false when one list has more, fewer or other guids", () => {
+    assert.equal(sameGuidSet(["a"], ["a", "b"]), false);
+    assert.equal(sameGuidSet(["a", "c"], ["a", "b"]), false);
+  });
+});
+
+test.describe("filterRows (søkefeltet)", () => {
+  const rows = [{ postnr: "Fd1500" }, { postnr: "fd1501" }, { postnr: "31" }, { postnr: MISSING_POSTNR }];
+
+  test("keeps rows whose postnr contains the text, ignoring case and surrounding spaces", () => {
+    assert.deepEqual(filterRows(rows, " FD15 ").map((r) => r.postnr), ["Fd1500", "fd1501"]);
+    assert.deepEqual(filterRows(rows, "3").map((r) => r.postnr), ["31"]);
   });
 
-  test("returns null when there is no usable box", () => {
-    assert.equal(unionBbox([]), null);
-    assert.equal(unionBbox([null, "x"]), null);
+  test("returns every row for an empty search", () => {
+    assert.equal(filterRows(rows, "").length, 4);
+    assert.equal(filterRows(rows, "   ").length, 4);
+    assert.equal(filterRows(rows, undefined).length, 4);
+  });
+
+  test("returns an empty list when nothing matches, and never changes the input", () => {
+    assert.deepEqual(filterRows(rows, "xyz"), []);
+    assert.equal(rows.length, 4);
+  });
+});
+
+test.describe("exportItems (svaret fra getObjectInfoForSearch)", () => {
+  // Formatet fra StreamBIM sin søkeeksport (/ifc-searches/export/json), slik StreamBIM selv
+  // leser det: header med feltnavn og én rad per objekt, med "Pset~Egenskap"-nøkler.
+  const response = {
+    header: [{ id: "GUID" }, { id: "Name" }, { id: "KS_Armering~Posisjonsnummer", pset: "KS_Armering", datatype: "str" }],
+    data: [
+      { GUID: "g1", Name: "Stang", "KS_Armering~Posisjonsnummer": "31", "KS_Armering~Antall": "4", "Geometry~Faces Hi": "80" },
+      { GUID: "g2", "MERKNADER~K200 Pos nr.": "Fd1000" },
+      { Name: "uten GUID" },
+    ],
+  };
+
+  test("turns each row into {guid, properties} with psets as nested objects", () => {
+    const [first] = exportItems(response);
+    assert.equal(first.guid, "g1");
+    assert.deepEqual(first.properties, {
+      GUID: "g1",
+      Name: "Stang",
+      KS_Armering: { Posisjonsnummer: "31", Antall: "4" },
+      Geometry: { "Faces Hi": "80" },
+    });
+  });
+
+  test("lets findProperty, groupRebar and hasGeometry read the rows like getObjectInfo", () => {
+    const items = exportItems(response);
+    const { rows } = groupRebar(items);
+    assert.deepEqual(rows.map((r) => [r.postnr, r.count]), [["31", 4], ["Fd1000", 1]]);
+    assert.equal(hasGeometry(items[0].properties), true);
+  });
+
+  test("skips rows without a GUID and tolerates a missing or odd response", () => {
+    assert.deepEqual(exportItems(response).map((i) => i.guid), ["g1", "g2"]);
+    assert.deepEqual(exportItems(null), []);
+    assert.deepEqual(exportItems({ data: "x" }), []);
+    assert.deepEqual(exportItems([]), []);
+  });
+});
+
+test.describe("exportSamples", () => {
+  const item = (guid, properties) => ({ guid, properties });
+
+  test("takes one object per postnr naming scheme, so every model in the building is checked", () => {
+    const items = [
+      item("a", { KS_Armering: { Posisjonsnummer: "1" } }),
+      item("b", { KS_Armering: { Posisjonsnummer: "2" } }),
+      item("c", { MERKNADER: { "K200 Pos nr.": "Fd1" } }),
+      item("d", { Name: "uten postnr" }),
+    ];
+    const guids = exportSamples(items).map((s) => s.guid);
+    for (const guid of ["a", "c", "d"]) assert.ok(guids.includes(guid), guid);
+  });
+
+  test("adds the middle and last object, never the same twice, and stays small", () => {
+    const items = Array.from({ length: 9 }, (_, i) => item(`g${i}`, { KS_Armering: { Posisjonsnummer: "1" } }));
+    assert.deepEqual(exportSamples(items).map((s) => s.guid), ["g0", "g4", "g8"]);
+    assert.equal(exportSamples([]).length, 0);
+  });
+});
+
+test.describe("exportGaps (stikkprøve mot getObjectInfo)", () => {
+  const info = objectProperties(realInfo); // KS_Armering: postnr 31, diameter 12, lengde 12385, formkode 00, antall 1
+
+  test("is empty when the export has the same column values", () => {
+    const row = { KS_Armering: { Posisjonsnummer: "31", Diameter: 12, Armeringslengde: "12385", Formkode: "00", Antall: "1" } };
+    assert.deepEqual(exportGaps(row, info), []);
+  });
+
+  test("names columns the export lacks or has a different value for", () => {
+    const row = { KS_Armering: { Posisjonsnummer: "31", Diameter: "16" } };
+    assert.deepEqual(exportGaps(row, info), ["diameter", "lengde", "formkode", "antall"]);
+  });
+
+  test("treats equal numbers in different notation as the same value", () => {
+    const row = { KS_Armering: { Posisjonsnummer: "31", Diameter: "12.0", Armeringslengde: 12385, Formkode: "00", Antall: 1 } };
+    assert.deepEqual(exportGaps(row, info), []);
+  });
+
+  test("reports missing 3D information when getObjectInfo has it and the export does not", () => {
+    const withGeometry = { ...info, Geometry: { "Faces Hi": "80", "Faces Lo": "20" } };
+    const row = { KS_Armering: { Posisjonsnummer: "31", Diameter: "12", Armeringslengde: "12385", Formkode: "00", Antall: "1" } };
+    assert.deepEqual(exportGaps(row, withGeometry), ["3D-geometri"]);
   });
 });
 
@@ -375,17 +484,10 @@ test.describe("groupRebar", () => {
     assert.equal(row.segment, "S1");
   });
 
-  test("records the bare property name used for postnr as search key", () => {
-    const { rows } = groupRebar(items);
-    assert.equal(rows.find((r) => r.postnr === "101").searchKey, "Posisjonsnummer");
-    assert.equal(rows.find((r) => r.postnr === "201").searchKey, "ARM.07 - Posnr");
-  });
-
   test("collects bars without postnr in their own group and counts them", () => {
     const { rows, missingPostnr } = groupRebar(items);
     const missing = rows.find((r) => r.postnr === MISSING_POSTNR);
     assert.deepEqual(missing.guids, ["g4"]);
-    assert.equal(missing.searchKey, null);
     assert.equal(missingPostnr, 1);
   });
 

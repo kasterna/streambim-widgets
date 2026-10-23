@@ -9,8 +9,12 @@
  *   format=streambim  (standard) som ekte StreamBIM: IFC-attributter i `properties`,
  *                     Pset-ene i `groups[]` med {key, value} som tekst
  *   format=flat|tilde|nested  eldre gjetninger om formen, for å teste findProperty
- *   findfilter=1      findObjects filtrerer på nøkkel/verdi. Standard er AV, fordi ekte
- *                     StreamBIM ga de samme objektene for hver søkeverdi i live-test.
+ *   findfilter=0      findObjects på nøkkel/verdi filtrerer aldri (gir alle objektene). Standard
+ *                     er som ekte StreamBIM: filtrerer når verdien finnes, men gir ALLE
+ *                     objektene for en verdi som ikke finnes («Reinforcing mesh» = 3624 av 3624).
+ *   eksport=kutt|0    getObjectInfoForSearch (søkeeksporten som hurtighentingen bruker) gir
+ *                     bare GUID og navn (som en eksport med begrenset antall felt), eller
+ *                     finnes ikke. Standard: alle egenskaper, som StreamBIM med fieldUnion.
  *   kind=0            @kind-søk gir ingen treff
  *   search=0          applyObjectSearch/zoomToSearchResult støttes ikke
  *   uten3d=31,27      disse postnummerne får 0 flater i "Geometry" (som etter en mangelfull
@@ -19,7 +23,8 @@
   function readSettings(params) {
     return {
       format: params.get("format") || "streambim",
-      findfilter: params.get("findfilter") === "1",
+      findfilter: params.get("findfilter") !== "0",
+      eksport: params.get("eksport") || "1",
       kind: params.get("kind") !== "0",
       search: params.get("search") !== "0",
       uten3d: (params.get("uten3d") || "").split(",").map((s) => s.trim()).filter(Boolean),
@@ -163,6 +168,26 @@
       return objects.filter(predicate).slice(0, limit).map((o) => o.guid);
     }
 
+    /** Som live: regler filtrerer alltid (guid-regler ga 3/3 og 0/1). Nøkkel/verdi filtrerer
+     *  når verdien finnes («Reinforcing bar»: 2125 av 3624), men en verdi som ikke finnes gir
+     *  ALLE objektene. findfilter=0 = nøkkel/verdi filtrerer aldri. */
+    function liveSearch(criteria, limit) {
+      if (criteria.rules) return search({ rules: criteria.rules, limit });
+      const everything = objects.slice(0, limit).map((o) => o.guid);
+      const hits = settings.findfilter ? search({ key: criteria.key, value: criteria.value, limit }) : [];
+      return hits.length ? hits : everything;
+    }
+
+    /** Én rad i StreamBIM sin søkeeksport: GUID, navn og "Pset~Egenskap" som tekst. */
+    function exportRowFor(obj) {
+      const row = { GUID: obj.guid, Name: obj.name };
+      if (settings.eksport === "kutt") return row;
+      for (const [pset, props] of Object.entries({ ...obj.psets, Geometry: geometryGroupFor(obj) })) {
+        for (const [key, value] of Object.entries(props)) row[`${pset}~${key}`] = String(value);
+      }
+      return row;
+    }
+
     function unsupported(name) {
       return async () => {
         throw { code: "MOCK_NOT_SUPPORTED", detail: `${name} er slått av i mocken` };
@@ -179,17 +204,29 @@
       getFloors: async () => [{ id: 1, name: "Plan 1", height: 0 }, { id: 2, name: "Plan 2", height: 3.6 }],
       getLayers: async () => ({ RIB: true, ARK: false }),
       getCameraState: async () => ({ position: [10, 10, 10], quaternion: [1, 0, 0, 0] }),
-      // Uten findfilter=1 gir findObjects alle objektene, slik ekte StreamBIM gjorde i live-test.
-      // Regler med verdier som finnes filtrerer også live (@kind «Reinforcing bar»: 2125 av 3624,
-      // guid-regler: 3/3, 0/1). Bare nøkkel/verdi-søk gir alt, med mindre findfilter=1.
-      findObjects: async (query) =>
-        query.rules || settings.findfilter ? search(query) : objects.slice(0, query.limit || 100).map((o) => o.guid),
+      findObjects: async (query) => liveSearch(query, query.limit || 100),
       getObjectInfo: async (guid) => {
         const obj = byGuid.get(guid);
         if (!obj) throw { code: "unknown", debug: guid };
         return objectInfoFor(obj);
       },
-      getObjectInfoForSearch: async (query) => search(query).map((guid) => objectInfoFor(byGuid.get(guid))),
+      // Som StreamBIM: søkeeksporten {header, data} (maks 10000 rader per side). Uten
+      // fieldUnion får hver rad bare feltene ALLE radene har.
+      getObjectInfoForSearch:
+        settings.eksport === "0"
+          ? unsupported("getObjectInfoForSearch")
+          : async (query) => {
+              if (!query || !query.filter) throw { code: "unknown", debug: "No filter provided" };
+              const skip = (query.page && query.page.skip) || 0;
+              const limit = Math.min(10000, (query.page && query.page.limit) || 1000);
+              let data = liveSearch(query.filter, skip + limit).slice(skip).map((guid) => exportRowFor(byGuid.get(guid)));
+              let ids = [...new Set(data.flatMap(Object.keys))];
+              if (!query.fieldUnion) {
+                ids = ids.filter((id) => data.every((row) => id in row));
+                data = data.map((row) => Object.fromEntries(ids.map((id) => [id, row[id]])));
+              }
+              return { header: ids.map((id) => ({ id })), data };
+            },
       valuesForObjectProperty: async (psetAndKey) => {
         const [pset, key] = psetAndKey.split("~");
         const values = objects.map((o) => o.psets[pset] && o.psets[pset][key]).filter((v) => v !== undefined);
