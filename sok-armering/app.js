@@ -245,9 +245,47 @@ async function markGroup(row, { zoom }) {
   await StreamBIM.API.colorCodeObjects({});
   if (visualizationMode() !== "FADED") await StreamBIM.API.setSearchVisualizationMode(visualizationMode());
   await StreamBIM.API.colorCodeObjects(colorCodeMap(row.guids, MARK_COLOR));
-  if (!zoom) return;
-  await StreamBIM.API.applyObjectSearch({ rules: [[guidSearchRule(row.guids, buildingId || row.building)]] });
-  await StreamBIM.API.zoomToSearchResult();
+  if (zoom) {
+    await StreamBIM.API.applyObjectSearch({ rules: [[guidSearchRule(row.guids, buildingId || row.building)]] });
+    await StreamBIM.API.zoomToSearchResult();
+  }
+  // Grupper med ÉTT objekt ga ingen synlig markering live (søket slo ikke ut, selv om grupper
+  // med flere objekter virket). Velg og fly derfor også til objektet direkte: det bruker
+  // ikke søk, så det virker uansett.
+  if (row.objects === 1) await selectSingleObject(row, { fly: zoom });
+  return verifyMark(row);
+}
+
+/** Velger ett objekt direkte (StreamBIM sin vanlige objektvalg-markering) og flyr eventuelt
+ *  kameraet dit. Reserve for enkeltobjekter, uavhengig av søket. */
+async function selectSingleObject(row, { fly }) {
+  const guid = row.guids[0];
+  await StreamBIM.API.highlightObject(guid);
+  if (fly) await StreamBIM.API.gotoObject(guid);
+}
+
+/** Lesende kontroll (endrer ingenting i 3D): finner StreamBIM alle objektene i gruppen med
+ *  samme regel som markeringen? Svaret havner i loggen, og finner den for få, vises en
+ *  melding slik at en markering som ikke tok ikke går ubemerket hen. Returnerer antall
+ *  funnet, eller null hvis kontrollen feilet. */
+async function verifyMark(row) {
+  try {
+    const hits = await StreamBIM.API.findObjects({
+      rules: [[guidSearchRule(row.guids, buildingId || row.building)]],
+      limit: SEARCH_LIMIT,
+    });
+    const found = Array.isArray(hits) ? hits.length : 0;
+    if (found < row.objects) {
+      showNote(
+        `StreamBIM fant bare ${found} av ${row.objects} objekter for postnr ${row.postnr}, så markeringen er ` +
+        "trolig ufullstendig. Åpne «Feilsøking» og kopier loggen."
+      );
+    }
+    return found;
+  } catch (err) {
+    log(`Kontroll av markering feilet: ${errText(err)}`);
+    return null;
+  }
 }
 
 /** Liste → modell: gul markering av alle stenger med samme postnr, og zoom dit. */
@@ -255,10 +293,11 @@ async function selectAndZoom(row) {
   selectedKey = row.postnr;
   renderTable();
   try {
-    await markGroup(row, { zoom: true });
-    log(`Valgt postnr ${row.postnr} (${row.count} stk i ${row.objects} objekter), markert gult og zoomet.`);
+    const found = await markGroup(row, { zoom: true });
+    log(`Valgt postnr ${row.postnr} (${row.count} stk i ${row.objects} objekter), markert og zoomet. StreamBIM fant ${found ?? "?"}/${row.objects} objekter.`);
   } catch (err) {
     log("Feil ved valg/zoom: " + errText(err));
+    showNote(`Kunne ikke markere postnr ${row.postnr}: ${errText(err)}`);
   }
 }
 
@@ -312,10 +351,11 @@ async function handlePickedObject(result) {
   renderTable();
   tableContainer.scrollTop = 0;
   try {
-    await markGroup(moved.row, { zoom: false });
-    log(`Postnr ${moved.row.postnr} klikket i 3D-viewer (${moved.row.count} stk i ${moved.row.objects} objekter), markert gult.`);
+    const found = await markGroup(moved.row, { zoom: false });
+    log(`Postnr ${moved.row.postnr} klikket i 3D-viewer (${moved.row.count} stk i ${moved.row.objects} objekter), markert. StreamBIM fant ${found ?? "?"}/${moved.row.objects} objekter.`);
   } catch (err) {
     log("Feil ved markering: " + errText(err));
+    showNote(`Kunne ikke markere postnr ${moved.row.postnr}: ${errText(err)}`);
   }
 }
 
