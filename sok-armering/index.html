@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Søk Armering</title>
+  <link rel="icon" type="image/svg+xml" href="icon.svg" />
+  <style>
+    html, body {
+      height: 100%;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 10px;
+      box-sizing: border-box;
+      font-size: 13px;
+      color: #222;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #page-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 18px;
+      font-weight: bold;
+      color: #0f8a6c;
+    }
+    #page-title img {
+      width: 26px;
+      height: 26px;
+    }
+    #toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    #status {
+      padding: 6px 8px;
+      border-radius: 4px;
+      background: #eee;
+    }
+    #status.ok { background: #d4edda; color: #155724; }
+    #status.error { background: #f8d7da; color: #721c24; }
+    #status.busy { background: #fff3cd; color: #856404; }
+    #refresh-btn {
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    #count {
+      font-size: 12px;
+      color: #555;
+    }
+    #count:empty { display: none; }
+    #note {
+      font-size: 11px;
+      color: #856404;
+      background: #fff3cd;
+      border-radius: 4px;
+      padding: 6px 8px;
+      display: none;
+    }
+    #note.show { display: block; }
+
+    #table-container {
+      flex: 1 1 auto;
+      min-height: 120px;
+      overflow: auto;
+      border: 1px solid #ddd;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      border-bottom: 1px solid #ddd;
+      padding: 4px 6px;
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      cursor: pointer;
+      background: #f5f5f5;
+      user-select: none;
+      position: sticky;
+      top: 0;
+    }
+    th:hover { background: #eaeaea; }
+    th.sorted::after { content: " ▲"; font-size: 9px; }
+    th.sorted.desc::after { content: " ▼"; }
+    tbody tr { cursor: pointer; }
+    tbody tr:hover { background: #e7f6f1; }
+    tbody tr.selected {
+      background: #fff3b0;
+      font-weight: bold;
+    }
+    #empty-row td {
+      color: #777;
+      font-style: italic;
+      cursor: default;
+      white-space: normal;
+    }
+
+    #debug-toggle {
+      font-size: 11px;
+      color: #0f8a6c;
+      cursor: pointer;
+      text-decoration: underline;
+      background: none;
+      border: none;
+      padding: 0;
+      align-self: flex-start;
+    }
+    #debug-panel {
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+    }
+    #debug-panel.show { display: flex; }
+    #debug-panel label {
+      font-size: 11px;
+      color: #555;
+    }
+    #debug-panel textarea {
+      width: 100%;
+      height: 140px;
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      box-sizing: border-box;
+    }
+    #log { height: 80px; }
+  </style>
+</head>
+<body>
+  <div id="page-title"><img src="icon.svg" alt="" /> Søk Armering</div>
+  <div id="toolbar">
+    <div id="status">Kobler til StreamBIM...</div>
+    <button id="refresh-btn" disabled>Oppdater liste</button>
+  </div>
+  <div id="count"></div>
+  <div id="note"></div>
+
+  <div id="table-container">
+    <table id="rebar-table">
+      <thead>
+        <tr>
+          <th data-key="postnr">Postnr</th>
+          <th data-key="count">Antall</th>
+          <th data-key="diameter">Diameter</th>
+          <th data-key="lengde">Lengde</th>
+          <th data-key="formkode">Formkode</th>
+          <th data-key="segment">Segment</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <button id="debug-toggle" type="button">Feilsøking: inspiser valgt element</button>
+  <div id="debug-panel">
+    <label for="debug-output">Rådata for sist klikkede element i 3D-vieweren</label>
+    <textarea id="debug-output" readonly placeholder="Klikk på et armeringselement i 3D-vieweren. Her vises hvilke egenskapsnavn widgeten fant (feltkobling) og hele getObjectInfo()-svaret, så du kan se hva StreamBIM faktisk kaller postnr/diameter/lengde/formkode i modellen."></textarea>
+    <label for="log">Logg</label>
+    <textarea id="log" readonly></textarea>
+  </div>
+
+  <script src="../vendor/streambim-widget-api.min.js"></script>
+  <script src="rebar-lib.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

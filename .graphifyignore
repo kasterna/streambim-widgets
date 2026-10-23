@@ -1,0 +1,3 @@
+# Minifisert tredjeparts-API (StreamBIM widget SDK) — ikke kildekode
+vendor/
+node_modules/

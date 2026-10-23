@@ -1,0 +1,18 @@
+{
+  "name": "streambim-widgets",
+  "version": "1.0.0",
+  "description": "Samling av StreamBIM-widgets (iframe). Første widget: Søk Armering.",
+  "private": true,
+  "scripts": {
+    "dev": "http-server -p 8084 --cors -c-1",
+    "test": "node --test",
+    "vendor": "node -e \"require('fs').copyFileSync('node_modules/streambim-widget-api/dist/streambim-widget-api.min.js','vendor/streambim-widget-api.min.js')\""
+  },
+  "license": "ISC",
+  "dependencies": {
+    "streambim-widget-api": "^3.0.0"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
