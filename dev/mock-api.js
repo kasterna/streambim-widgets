@@ -50,6 +50,7 @@
       focusVersion: 0,
       visualizationMode: "FADED",
       colorCoded: new Map(), // guid -> farge fra colorCodeObjects
+      buildingId: "1000", // aktiv bygning
     };
 
     function setFocus(guids, text) {
@@ -166,7 +167,7 @@
     // 250 getObjectInfo()-kall mange sekunder.
     const api = {
       getProjectId: async () => "mock-project",
-      getBuildingId: async () => "1000",
+      getBuildingId: async () => state.buildingId, // kan endres i konsollen for å simulere bygningsbytte
       getUserEmail: async () => "mock@example.com",
       setShowExpandButton: async () => true,
       getFloors: async () => [{ id: 1, name: "Plan 1", height: 0 }, { id: 2, name: "Plan 2", height: 3.6 }],

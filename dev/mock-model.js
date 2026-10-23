@@ -40,7 +40,18 @@
     "ARM.37 - Formkode": formkode,
   });
 
+  // Eksport med kode foran egenskapsnavnene, i pset MERKNADER.
+  const kcoded = (postnr, diameter, lengde, formkode) => ({
+    "K200 Pos nr.": postnr,
+    "K201 Stangdiameter": diameter,
+    "K202 Antall": 1,
+    "K233 Kapplengde": lengde,
+    "K212 Formkode": formkode,
+  });
+
   add(12, "ReinforcingBar", "Tekla Reinforcement", tekla("101", "12", "2450", "00", "S1"), "Tekla pos 101");
+  add(3, "ReinforcingBar", "MERKNADER", kcoded("Fx0001.01", "25", "3395", "NB99-01"), "K-kodet pos Fx0001.01");
+  add(4, "ReinforcingBar", "MERKNADER", kcoded("Fx0002.01", "16", "5120", "NB00-00"), "K-kodet pos Fx0002.01");
   add(8, "ReinforcingBar", "Tekla Reinforcement", tekla("102", "16", "3200", "21", "S1"), "Tekla pos 102");
   add(20, "ReinforcingBar", "Tekla Reinforcement", tekla("103", "10", "1180", "51", "S2"), "Tekla pos 103");
   add(6, "ReinforcingBar", "ARM", rib("201", "20", 2647.1150383789704, "26", 6), "RIB pos 201");

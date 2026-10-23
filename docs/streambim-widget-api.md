@@ -42,6 +42,8 @@ README-en stemmer ikke på flere punkter. Dette er lest i `app.streambim.com/web
 | `resetObjectSearch()` | | `resetIfcSearch`. |
 | `getBuildingId()` | | `projectservice.building.id`, samme verdi som StreamBIM bruker i egne regler. |
 
+**Flere bygninger i ett prosjekt (lest i koden):** et StreamBIM-prosjekt kan ha flere *bygninger* (f.eks. én per sted), hver med egne IFC-filer og etasjer. Den *aktive* bygningen er `usersettings.project.buildingId`, og den settes når du velger en bygning i modellpanelet (`selectBuilding`). `findObjects` bruker den som standard `buildingId`, og `getBuildingId()` og `getFloors()` gjelder den. En widget ser altså bare den aktive bygningen. Et API-kall for å bytte bygning finnes ikke. Hent `getBuildingId()` på nytt når lista oppdateres, og regn med at modeller i andre bygninger ikke vises før brukeren velger dem.
+
 **Hvordan et søk tegnes:** `applySceneFilter` kjører asynkront. Når søket er ferdig, velger StreamBIM `COLOR_CODED` hvis det finnes en fargekode i det øyeblikket, ellers `HIGHLIGHTED` (StreamBIMs egen grønne søkefarge og «Fremhever N objekter»). Objekter utenfor søket får `outSearchMode`, og standard er `FADED`. `zoomToSearchResult` rammer inn bounding boxen til **siste ferdige** søk. `setSearchVisualizationMode` kjører `reloadSearch`, som starter det lagrede søket på nytt, parallelt med et søk som allerede er på vei.
 
 **Oppskrift for «marker en gruppe og ton ned resten»**, som brukes av Søk Armering. Rekkefølgen er viktig:
@@ -135,7 +137,9 @@ Hele lista står i `node_modules/streambim-widget-api/README.md`. Den mest kompl
   ```
   Verdiene i `groups` er alltid tekst (`"12385"`, `"1"`), også tall.
 - `valueItem` er base64 av StreamBIM sin egen søkenøkkel, `ifcelement~KS_Armering~Posisjonsnummer~str~31`. StreamBIM adresserer altså egenskaper som *Pset + egenskap*.
-- **`findObjects({key, value})` filtrerer ikke slik README sier.** Hver søkeverdi ga de samme 255 objektene: «ReinforcingBar», «IfcReinforcingMesh», og til og med «Common Type», som ikke finnes. Sjekk derfor alltid `@kind` på objektene etterpå.
+- **`findObjects({key, value})` er upålitelig som filter.** I den første, lille bygningen ga hver søkeverdi de samme 255 objektene, også «Common Type», som ikke finnes. I en bygning med to modeller ga `@kind = "Reinforcing bar"` riktig 2125 av 3624 objekter, mens verdier som ikke finnes i modellen («Reinforcing mesh», «ReinforcingBar», …) ga **alle 3624**. Sjekk derfor alltid `@kind` på objektene etterpå. Å hente info for 3624 objekter tok omtrent ett sekund.
+- **Flere modeller i samme bygning:** `getObjectInfo().document` skiller modellene (1000 og 1001 i det aktuelle prosjektet), og `layer` er filnavnet. Begge hadde `building: "1000"`, så ingen bygningsbytte var nødvendig. Et widget-søk dekker alle modellene i den aktive bygningen.
+- **Ulike eksportprogram gir ulike egenskapsnavn:** Revit-eksporten har `Posisjonsnummer`/`Diameter`/`Antall` i pset `KS_Armering`. En annen modell har pset `MERKNADER` med navn som `K200 Pos nr.` (med punktum til slutt), `K201 Stangdiameter`, `K202 Antall`, `K212 Formkode` og `K233 Kapplengde`. Verdiene er tekst (`"25"`, `"5045"`). Widgeten leser dem med regulære uttrykk i `FIELDS`.
 - **`highlightObject` ga ingen synlig markering** sammen med søk/zoom. Grunnen fant vi i StreamBIM-koden (se tabellen over): det er «velg», og søket fjerner valget. Siden versjon 2026-10-23.5 markeres grupper med `colorCodeObjects` i stedet.
 - Om `findObjects` filtrerer når reglene sendes på toppnivå med riktig `buildingId`, er **ikke bekreftet ennå**. «Test søk» i widgetens Feilsøking måler det. Gjør den det, kan lista lastes raskere i modeller med mye annet enn armering.
 

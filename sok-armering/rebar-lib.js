@@ -12,14 +12,16 @@
    *  "Feilsøking" i widgeten og LEGG TIL nye navn her (ikke endre eksisterende — andre
    *  prosjekter er avhengige av dem). */
   const FIELDS = {
-    postnr: ["Posisjonsnummer", "ARM.07 - Posnr"],
-    diameter: ["Diameter jern", "ARM.08 - Stangdiameter", "Diameter"],
-    lengde: ["Armeringslengde", "ARM.80 - Kapplengde"], // ikke ARM.81 - Totallengde (sum for gruppen)
-    formkode: ["Formkode", "ARM.37 - Formkode"],
+    // De regulære uttrykkene tar eksporter med kode foran navnet (pset MERKNADER: "K200 Pos
+    // nr", "K201 Stangdiameter" …), lest av et skjermbilde fra StreamBIM.
+    postnr: ["Posisjonsnummer", "ARM.07 - Posnr", /^K\d+\s+Pos\.?\s*nr\b/i],
+    diameter: ["Diameter jern", "ARM.08 - Stangdiameter", "Diameter", /^K\d+\s+Stangdiameter\b/i],
+    lengde: ["Armeringslengde", "ARM.80 - Kapplengde", /^K\d+\s+Kapplengde\b/i], // ikke ARM.81 - Totallengde (sum for gruppen)
+    formkode: ["Formkode", "ARM.37 - Formkode", /^K\d+\s+Formkode\b/i],
     segment: ["Segment"],
     // Antall stenger i objektet. Revit eksporterer et helt armeringssett som ÉTT IFC-objekt
     // (f.eks. 38 bøyler), så å telle objekter gir for lavt antall.
-    antall: ["Antall"],
+    antall: ["Antall", /^K\d+\s+Antall\b/i],
   };
 
   /** Søkene som til sammen finner kandidater for armering (unionen av alle treff). Ekte
@@ -57,20 +59,33 @@
     });
   }
 
-  /** Finner første kandidat-navn som har en verdi. Returnerer {key, name, value} — `key`
-   *  er hele nøkkelen slik StreamBIM leverte den, `name` er selve egenskapsnavnet (brukes
-   *  som søkenøkkel). Eksakt treff prøves for alle kandidater før store/små bokstaver
-   *  ignoreres, slik at kandidat-rekkefølgen alltid styrer. */
+  /** Passer kandidaten til egenskapen? En streng må være lik hele nøkkelen eller bare
+   *  navnet. Et regulært uttrykk testes mot navnet alene (aldri mot Pset-navnet), og
+   *  lastIndex nullstilles så et uttrykk med g-flagg gir samme svar hver gang. */
+  function candidateMatches(candidate, entry) {
+    if (candidate instanceof RegExp) {
+      candidate.lastIndex = 0;
+      return candidate.test(entry.name);
+    }
+    return entry.key === candidate || entry.name === candidate;
+  }
+
+  /** Finner første kandidat som har en verdi. En kandidat er et navn (streng) eller et
+   *  regulært uttrykk — uttrykk trengs der eksporten setter kode foran navnet ("K200 Pos
+   *  nr"). Returnerer {key, name, value}: `key` er hele nøkkelen slik StreamBIM leverte
+   *  den, `name` er selve egenskapsnavnet (brukes som søkenøkkel). Eksakte treff og
+   *  uttrykk prøves for alle kandidater i rekkefølge før store/små bokstaver ignoreres
+   *  for strenger, slik at kandidat-rekkefølgen alltid styrer. */
   function findProperty(properties, names) {
     const entries = flattenProperties(properties).filter((e) => hasValue(e.value));
-    const nameList = Array.isArray(names) ? names : [names];
+    const candidates = Array.isArray(names) ? names : [names];
 
-    for (const name of nameList) {
-      const hit = entries.find((e) => e.key === name || e.name === name);
+    for (const candidate of candidates) {
+      const hit = entries.find((e) => candidateMatches(candidate, e));
       if (hit) return hit;
     }
-    for (const name of nameList) {
-      const lower = name.toLowerCase();
+    for (const candidate of candidates.filter((c) => typeof c === "string")) {
+      const lower = candidate.toLowerCase();
       const hit = entries.find((e) => e.key.toLowerCase() === lower || e.name.toLowerCase() === lower);
       if (hit) return hit;
     }

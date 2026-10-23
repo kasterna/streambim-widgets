@@ -51,6 +51,86 @@ test.describe("objectProperties (ekte StreamBIM-format)", () => {
   });
 });
 
+test.describe("findProperty with regular-expression candidates", () => {
+  const props = { MERKNADER: { "K200 Pos nr": "A1", "K205 Armeringstekst": "tekst" } };
+
+  test("matches the bare property name, never the pset name", () => {
+    assert.equal(findProperty(props, [/^K\d+\s+Pos\.?\s*nr\b/i]).value, "A1");
+    assert.equal(findProperty(props, [/MERKNADER/]), undefined);
+  });
+
+  test("keeps candidate order: an exact string before it wins over the regex", () => {
+    const both = { A: { "K200 Pos nr": "regex", Posisjonsnummer: "streng" } };
+    assert.equal(findProperty(both, ["Posisjonsnummer", /^K\d+\s+Pos/i]).value, "streng");
+    assert.equal(findProperty(both, [/^K\d+\s+Pos/i, "Posisjonsnummer"]).value, "regex");
+  });
+
+  test("returns the matched key and bare name so the search rule can use them", () => {
+    assert.deepEqual(findProperty(props, [/^K\d+\s+Pos/i]), { key: "MERKNADER~K200 Pos nr", name: "K200 Pos nr", value: "A1" });
+  });
+
+  test("skips empty values like string candidates do", () => {
+    assert.equal(findProperty({ P: { "K200 Pos nr": "" } }, [/^K200/]), undefined);
+  });
+
+  test("regexes are not confused by the global flag's lastIndex", () => {
+    const re = /^K\d+\s+Pos/g;
+    assert.equal(findProperty(props, [re]).value, "A1");
+    assert.equal(findProperty(props, [re]).value, "A1");
+  });
+});
+
+test.describe("K-coded property names (pset MERKNADER)", () => {
+  const kcoded = require("./fixtures/object-info-kcoded.json");
+
+  test("finds postnr, diameter, length, form code and count", () => {
+    const props = objectProperties(kcoded);
+    // Ekte nøkkel har punktum bak: "K200 Pos nr." (sett i rådata fra StreamBIM)
+    assert.equal(findProperty(props, FIELDS.postnr).name, "K200 Pos nr.");
+    assert.equal(findProperty(props, FIELDS.postnr).value, "Fx0001.01");
+    assert.equal(findProperty(props, FIELDS.diameter).value, "25");
+    assert.equal(findProperty(props, FIELDS.lengde).value, "5045");
+    assert.equal(findProperty(props, FIELDS.formkode).value, "NB99-01");
+    assert.equal(findProperty(props, FIELDS.antall).value, "1");
+  });
+
+  test("does not mistake other K-coded properties for the columns", () => {
+    const props = objectProperties(kcoded);
+    for (const field of ["postnr", "diameter", "lengde", "formkode", "antall"]) {
+      const hit = findProperty(props, FIELDS[field]);
+      assert.ok(
+        !/Armeringstekst|Delmål|Senteravstand|Vekt|ElementID|Dordiameter|Plassering|Material|Vinkel|MMI/.test(hit.name),
+        `${field} -> ${hit.name}`
+      );
+    }
+  });
+
+  test("groups the bars by the K-coded postnr and remembers the search key", () => {
+    const { rows, missingPostnr } = groupRebar([{ guid: "g1", properties: objectProperties(kcoded), building: kcoded.building }]);
+    assert.equal(missingPostnr, 0);
+    assert.equal(rows[0].postnr, "Fx0001.01");
+    assert.equal(rows[0].searchKey, "K200 Pos nr.");
+    assert.equal(rows[0].searchPset, "MERKNADER");
+    assert.equal(rows[0].diameter, "25");
+    assert.equal(rows[0].lengde, "5045");
+    assert.equal(rows[0].count, 1);
+    assert.equal(rows[0].missing3d, 0);
+  });
+
+  test("sums the K-coded Antall like the Revit one", () => {
+    const withFour = objectProperties({
+      ...kcoded,
+      groups: [{ label: "MERKNADER", content: { properties: [{ key: "K200 Pos nr", value: "B" }, { key: "K202 Antall", value: "4" }] } }],
+    });
+    assert.equal(groupRebar([{ guid: "a", properties: withFour }]).rows[0].count, 4);
+  });
+
+  test("an object without any postnr-like property is still reported as missing", () => {
+    const none = objectProperties({ properties: { "@kind": "Reinforcing bar" }, groups: [{ label: "MERKNADER", content: { properties: [{ key: "K001 ElementID", value: "X" }] } }] });
+    assert.equal(groupRebar([{ guid: "a", properties: none }]).missingPostnr, 1);
+  });
+});
+
 test.describe("isRebarObject", () => {
   test("accepts StreamBIM's readable @kind values and IFC class names", () => {
     for (const kind of ["Reinforcing bar", "Reinforcing mesh", "IfcReinforcingBar", "ReinforcingMesh"]) {

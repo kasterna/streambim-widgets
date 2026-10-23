@@ -1,0 +1,54 @@
+{
+  "layer": "TestARM",
+  "properties": {
+    "@kind": "Reinforcing bar",
+    "Name": "Bar 1",
+    "Global Id": "3kCoDedTestGuid000001",
+    "BaseType": "ifcelement"
+  },
+  "groups": [
+    {
+      "label": "MERKNADER",
+      "source": "GRAPH",
+      "content": {
+        "properties": [
+          { "key": "K001 ElementID", "value": "X1-01-1", "valueType": "str" },
+          { "key": "K002 Elementtype", "value": "Armering", "valueType": "str" },
+          { "key": "K008 MMI", "value": "400", "valueType": "str" },
+          { "key": "K090 Material hovedkategori", "value": "Armering", "valueType": "str" },
+          { "key": "K091 Material underkategori", "value": "B500NC", "valueType": "str" },
+          { "key": "K200 Pos nr.", "value": "Fx0001.01", "valueType": "str" },
+          { "key": "K201 Stangdiameter", "value": "25", "valueType": "str" },
+          { "key": "K202 Antall", "value": "1", "valueType": "int8" },
+          { "key": "K203 Senteravstand", "value": "200", "valueType": "str" },
+          { "key": "K204 Plassering", "value": "|| STH - Stirrups horizontal", "valueType": "str" },
+          { "key": "K211 Armeringstekst", "value": "ø25c200-(X1-01-1/0001.01)", "valueType": "str" },
+          { "key": "K212 Formkode", "value": "NB99-01", "valueType": "str" },
+          { "key": "K213 Delmål A", "value": "2445", "valueType": "float8" },
+          { "key": "K215 Delmål C", "value": "2460", "valueType": "float8" },
+          { "key": "K220 Delmål H", "value": "250", "valueType": "float8" },
+          { "key": "K223 Vinkel Va", "value": "101.30993", "valueType": "float8" },
+          { "key": "K228 Dordiameter", "value": "125", "valueType": "float8" },
+          { "key": "K233 Kapplengde", "value": "5045", "valueType": "float8" },
+          { "key": "K234 Vekt pr. jern", "value": "19.438", "valueType": "float8" },
+          { "key": "K235 Vekt pr. gruppe", "value": "19.438", "valueType": "float8" }
+        ],
+        "children": null
+      }
+    },
+    {
+      "label": "Geometry",
+      "source": "GRAPH",
+      "content": {
+        "properties": [
+          { "key": "Faces Hi", "value": "232", "valueType": "" },
+          { "key": "Faces Lo", "value": "152", "valueType": "" }
+        ],
+        "children": null
+      }
+    }
+  ],
+  "floors": ["1003"],
+  "document": "1001",
+  "building": "1000"
+}

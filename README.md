@@ -20,7 +20,7 @@ Lister all armering i modellen gruppert per posisjonsnummer:
   - Klikk på valgt rad igjen for å nullstille.
 - **Modell → liste:** klikk en stang i 3D. Alle stenger med samme postnr markeres, resten av modellen tones ned, og raden flyttes øverst. Kameraet blir stående.
 - Lista lastes automatisk når widgeten åpnes. «Oppdater liste» henter den på nytt.
-- Tekla-navn (`Posisjonsnummer`, `Diameter jern` …), RIB-navn (`ARM.07 - Posnr`, `ARM.08 - Stangdiameter` …) og Revit-eksport (`Posisjonsnummer`, `Diameter`, `Antall` …) støttes samtidig.
+- Tekla-navn (`Posisjonsnummer`, `Diameter jern` …), RIB-navn (`ARM.07 - Posnr`, `ARM.08 - Stangdiameter` …), Revit-eksport (`Posisjonsnummer`, `Diameter`, `Antall` …) og eksport med kode foran navnet (`K200 Pos nr`, `K201 Stangdiameter` …) støttes samtidig.
 - **Feilsøking: inspiser valgt element** nederst viser hvilke egenskapsnavn widgeten fant på sist klikkede element, pluss hele svaret fra StreamBIM.
   - **Kopier rådata og logg** kopierer alt i én operasjon.
   - **Test søk** måler hvilke StreamBIM-søk som faktisk filtrerer, med postnummeret som er valgt.
@@ -35,7 +35,7 @@ Kjente begrensninger:
 
 1. Publiser repoet på GitHub Pages (se under) og sjekk at URL-en åpner seg i nettleseren. Den skal vise «Åpnet utenfor StreamBIM ✘», og det er riktig.
 2. Send **navn + URL** fra tabellen over til Rendra (support@rendra.io), med hvilket prosjekt widgeten skal slås på i. Widgets whitelistes og aktiveres per prosjekt.
-3. Første test i prosjektet: åpne widgeten, klikk et armeringselement og åpne «Feilsøking». Står `feltkobling` på `IKKE FUNNET`, legg det egentlige egenskapsnavnet til i `FIELDS` i [sok-armering/rebar-lib.js](sok-armering/rebar-lib.js).
+3. Første test i prosjektet: åpne widgeten, klikk et armeringselement og åpne «Feilsøking». Står `feltkobling` på `IKKE FUNNET`, legg det egentlige egenskapsnavnet til i `FIELDS` i [sok-armering/rebar-lib.js](sok-armering/rebar-lib.js). Et navn kan skrives som tekst eller som regulært uttrykk (for navn med kode foran, som `/^K\d+\s+Pos\.?\s*nr\b/i`).
 
 ### Publisering (GitHub Pages)
 

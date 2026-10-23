@@ -122,6 +122,14 @@ async function fetchRebarList() {
   showNote("");
 
   try {
+    // StreamBIM søker og zoomer i AKTIV bygning (et prosjekt kan ha flere, f.eks. én per
+    // sted). Bygges valgt bygning om etter at widgeten startet, må vi hente id-en på nytt,
+    // ellers får zoom-regelen feil buildingId.
+    const previousBuilding = buildingId;
+    buildingId = await StreamBIM.API.getBuildingId().catch(() => buildingId);
+    if (previousBuilding !== null && buildingId !== previousBuilding) {
+      log(`Aktiv bygning er endret: ${previousBuilding} → ${buildingId}.`);
+    }
     const guids = await findAllRebarGuids();
     if (guids.length === 0) {
       rows = [];
@@ -146,7 +154,9 @@ async function fetchRebarList() {
     renderTable();
 
     const bars = rows.reduce((sum, row) => sum + row.count, 0);
-    countEl.textContent = `${bars} stenger i ${items.length} IFC-objekter (${rows.length} unike postnr).`;
+    countEl.textContent =
+      `${bars} stenger i ${items.length} IFC-objekter (${rows.length} unike postnr)` +
+      (buildingId ? ` · bygning ${buildingId}.` : ".");
     const notes = [];
     if (missingPostnr > 0) {
       notes.push(
