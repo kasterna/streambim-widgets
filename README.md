@@ -41,7 +41,11 @@ Første gang:
 2. På github.com: *Settings → Pages* → *Deploy from a branch* → `main` / `(root)`.
 3. Vent ca. ett minutt, og åpne URL-en fra tabellen.
 
-Endringer senere: commit og push i GitHub Desktop, og vent ca. ett minutt. StreamBIM laster siden på nytt fra URL-en, så det trengs ingen ny registrering. Repoet må være **offentlig** for gratis GitHub Pages. Det er greit, for det ligger ingen hemmeligheter her.
+Endringer senere: øk versjonen i `?v=` på skript-taggene nederst i widgetens `index.html` (f.eks. `2026-10-23.4`). Commit og push i GitHub Desktop, og vent ca. ett minutt. StreamBIM laster siden fra URL-en hver gang, så det trengs ingen ny registrering.
+
+**Hurtigbuffer:** GitHub Pages lar nettleseren bruke gamle filer i opptil **10 minutter**. Ser du fortsatt gammel versjon (versjonsnummeret står nederst til høyre i widgeten), kan du gjøre ett av to:
+- Vent 10 minutter og last StreamBIM på nytt.
+- Trykk F12 → *Network* → huk av *Disable cache* → F5. Repoet må være **offentlig** for gratis GitHub Pages. Det er greit, for det ligger ingen hemmeligheter her.
 
 ## Teste mot ekte StreamBIM før widgeten er aktivert
 

@@ -13,6 +13,9 @@ const {
   mapWithConcurrency,
 } = window.RebarLib;
 
+// Versjonen står bare ett sted: ?v= på skript-taggene i index.html.
+const WIDGET_VERSION = new URL(document.currentScript.src).searchParams.get("v") || "ukjent";
+
 const SEARCH_LIMIT = 10000;
 const INFO_CONCURRENCY = 10;
 const HIGHLIGHT_CONCURRENCY = 20;
@@ -371,6 +374,8 @@ refreshBtn.addEventListener("click", fetchRebarList);
  *  aldri noen tilkobling — vakthunden gir da en forklaring i stedet for evig "kobler til". */
 async function main() {
   renderTable();
+  document.getElementById("version").textContent = `versjon ${WIDGET_VERSION}`;
+  log(`Søk Armering versjon ${WIDGET_VERSION}`);
   log(`Referrer: ${document.referrer || "(ingen)"}`);
 
   if (window.parent === window) {

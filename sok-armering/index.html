@@ -107,6 +107,12 @@
       white-space: normal;
     }
 
+    #footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+    }
     #debug-toggle {
       font-size: 11px;
       color: #0f8a6c;
@@ -115,7 +121,10 @@
       background: none;
       border: none;
       padding: 0;
-      align-self: flex-start;
+    }
+    #version {
+      font-size: 10px;
+      color: #999;
     }
     #debug-panel {
       display: none;
@@ -172,7 +181,10 @@
     </table>
   </div>
 
-  <button id="debug-toggle" type="button">Feilsøking: inspiser valgt element</button>
+  <div id="footer">
+    <button id="debug-toggle" type="button">Feilsøking: inspiser valgt element</button>
+    <span id="version"></span>
+  </div>
   <div id="debug-panel">
     <div id="debug-buttons">
       <button id="copy-btn" type="button">Kopier rådata og logg</button>
@@ -184,8 +196,11 @@
     <textarea id="log" readonly></textarea>
   </div>
 
-  <script src="../vendor/streambim-widget-api.min.js"></script>
-  <script src="rebar-lib.js"></script>
-  <script src="app.js"></script>
+  <!-- ?v= er widgetens versjon: øk den ved hver endring. GitHub Pages lar nettleseren
+       bruke gamle filer i opptil 10 min; ny ?v= tvinger nye skript så snart denne siden
+       selv er hentet på nytt. app.js leser versjonen herfra og viser den. -->
+  <script src="../vendor/streambim-widget-api.min.js?v=2026-10-23.3"></script>
+  <script src="rebar-lib.js?v=2026-10-23.3"></script>
+  <script src="app.js?v=2026-10-23.3"></script>
 </body>
 </html>
