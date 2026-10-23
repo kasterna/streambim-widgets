@@ -6,7 +6,7 @@ Samlemappe for egne StreamBIM-widgets. En StreamBIM-widget er en vanlig nettside
 
 | Navn (til StreamBIM) | URL | Status |
 |---|---|---|
-| **Søk Armering** | `https://kasterna.github.io/streambim-widgets/sok-armering/index.html` | Testet live i StreamBIM med Revit-eksport (liste, markering, nedtoning og zoom virker). Tekla- og RIB-egenskaper er ikke testet i StreamBIM ennå |
+| **Søk Armering** | `https://kasterna.github.io/streambim-widgets/sok-armering/index.html` | Testet live i StreamBIM med to eksporter: Revit-eksport (egenskaper i pset `KS_Armering`) og eksport med kodede navn (pset `MERKNADER`, f.eks. `K200 Pos nr.`). Liste, markering, nedtoning og zoom virker, også for grupper med bare ett objekt. Tekla- og RIB-egenskaper er ikke sett i StreamBIM ennå |
 
 ### Søk Armering
 
