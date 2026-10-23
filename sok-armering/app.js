@@ -27,7 +27,7 @@ const COLUMNS = ["postnr", "count", "objects", "diameter", "lengde", "formkode",
 const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("refresh-btn");
 const countEl = document.getElementById("count");
-const fadeToggle = document.getElementById("fade-toggle");
+const restModeSelect = document.getElementById("rest-mode");
 const noteEl = document.getElementById("note");
 const tableContainer = document.getElementById("table-container");
 const tableBody = document.querySelector("#rebar-table tbody");
@@ -48,7 +48,9 @@ let hasLoaded = false;
 let rebarObjectCount = 0; // armeringsobjekter i lista — brukes til å avsløre søk som ikke filtrerer
 const bboxByGuid = new Map(); // guid -> StreamBIM bbox [minX, minY, minZ, maxX, maxY, maxZ]
 let buildingId = null; // fra getBuildingId() — samme verdi StreamBIM bruker i egne søkeregler
-const FADE_STORAGE_KEY = "sok-armering-ton-ned";
+// Nytt navn (var "sok-armering-ton-ned" med 1/0): en tidligere "av" skal ikke ta bort nedtoningen.
+const REST_STORAGE_KEY = "sok-armering-resten";
+const REST_MODES = ["FADED", "HIDDEN", "ORIGINAL"]; // StreamBIM sine visningsmoduser utenfor søket
 
 function log(msg) {
   const time = new Date().toLocaleTimeString();
@@ -221,9 +223,11 @@ function renderTable() {
   });
 }
 
-/** "Ton ned resten" på: FADED, så de gule stengene skiller seg ut. Av: ORIGINAL. */
+/** Hva som skjer med resten av modellen: FADED (tones ned, standard), HIDDEN (skjules) eller
+ *  ORIGINAL (vises som før). I tett, flerfarget armering er FADED/HIDDEN det som gjør
+ *  markeringen synlig. */
 function visualizationMode() {
-  return fadeToggle.checked ? "FADED" : "ORIGINAL";
+  return restModeSelect.value;
 }
 
 /** Gjør hele postnr-gruppen gul og toner ned resten. Rekkefølgen er bygget på StreamBIM
@@ -270,20 +274,20 @@ async function clearSelection() {
   }
 }
 
-function saveFadePreference() {
+function saveRestMode() {
   try {
-    localStorage.setItem(FADE_STORAGE_KEY, fadeToggle.checked ? "1" : "0");
+    localStorage.setItem(REST_STORAGE_KEY, restModeSelect.value);
   } catch {
     // bare en bekvemmelighet — kan være sperret i iframe
   }
 }
 
-function loadFadePreference() {
+function loadRestMode() {
   try {
-    const saved = localStorage.getItem(FADE_STORAGE_KEY);
-    if (saved !== null) fadeToggle.checked = saved === "1";
+    const saved = localStorage.getItem(REST_STORAGE_KEY);
+    if (REST_MODES.includes(saved)) restModeSelect.value = saved;
   } catch {
-    // standard (på) brukes
+    // standard (tones ned) brukes
   }
 }
 
@@ -403,8 +407,8 @@ debugToggle.addEventListener("click", () => {
   if (debugPanel.classList.contains("show") && lastPickedGuid) updateDebugPanel(lastPickedGuid);
 });
 searchTestBtn.addEventListener("click", runSearchTest);
-fadeToggle.addEventListener("change", () => {
-  saveFadePreference();
+restModeSelect.addEventListener("change", () => {
+  saveRestMode();
   // Gjelder med en gang for gruppen som er valgt nå.
   if (selectedKey !== null) StreamBIM.API.setSearchVisualizationMode(visualizationMode()).catch(() => {});
 });
@@ -429,7 +433,7 @@ refreshBtn.addEventListener("click", fetchRebarList);
  *  direkte (ikke som iframe i StreamBIM), eller sender verten ingen referrer, blir det
  *  aldri noen tilkobling — vakthunden gir da en forklaring i stedet for evig "kobler til". */
 async function main() {
-  loadFadePreference();
+  loadRestMode();
   renderTable();
   document.getElementById("version").textContent = `versjon ${WIDGET_VERSION}`;
   log(`Søk Armering versjon ${WIDGET_VERSION}`);

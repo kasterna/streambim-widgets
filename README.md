@@ -16,7 +16,7 @@ Lister all armering i modellen gruppert per posisjonsnummer:
 - **Obj.** er antall IFC-objekter. Det er samme tall som StreamBIM viser i «Fremhever N objekter», mens **Antall** er antall stenger. Mangler noen av objektene 3D-geometri i StreamBIM, står det for eksempel «42 (12 uten 3D)» i oransje, og en melding over lista sier hvilke postnr det gjelder.
 - **Antall** er antall stenger. Revit eksporterer et helt armeringssett som ett IFC-objekt, så widgeten summerer egenskapen `Antall` og teller 1 per objekt der den mangler.
 - **Liste → modell:** klikk en rad. Alle stenger med det postnummeret markeres (grønt i StreamBIM, se under), og kameraet zoomer til dem.
-  - Med **Ton ned resten av modellen ved valg** (på som standard) tones resten av modellen ned, så de valgte stengene synes godt. Valget huskes i nettleseren.
+  - Valget **Resten av modellen ved valg** bestemmer hva som skjer med alt annet: **tones ned** (standard), **skjules** (best i tett, flerfarget armering) eller **vises som før**. Valget huskes i nettleseren, og det gjelder med en gang for gruppen som er valgt.
   - Klikk på valgt rad igjen for å nullstille.
 - **Modell → liste:** klikk en stang i 3D. Alle stenger med samme postnr markeres, resten av modellen tones ned, og raden flyttes øverst. Kameraet blir stående.
 - Lista lastes automatisk når widgeten åpnes. «Oppdater liste» henter den på nytt.

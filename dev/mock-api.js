@@ -280,8 +280,9 @@
           tile.style.background = state.colorCoded.get(obj.guid);
           tile.style.color = "#222";
         }
-        if (state.activeSearch && !state.activeSearch.has(obj.guid) && state.visualizationMode === "FADED") {
-          tile.classList.add("faded");
+        if (state.activeSearch && !state.activeSearch.has(obj.guid)) {
+          if (state.visualizationMode === "FADED") tile.classList.add("faded");
+          if (state.visualizationMode === "HIDDEN") tile.style.display = "none";
         }
         tile.textContent = obj.name;
         tile.title = obj.guid;
