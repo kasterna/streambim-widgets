@@ -27,9 +27,24 @@
     .widget h2 { margin: 0 0 4px; font-size: 16px; }
     .widget p { margin: 4px 0; font-size: 13px; }
     code { background: #f5f5f5; padding: 2px 4px; border-radius: 3px; word-break: break-all; }
+    #framed-warning {
+      background: #fff3cd;
+      color: #664d03;
+      border: 1px solid #ffda6a;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
+  <div id="framed-warning" hidden>
+    <strong>Feil widget-URL.</strong> Dette er samlesiden, ikke en widget. Widget-URL-en i StreamBIM peker på
+    roten av repoet. Bytt den til URL-en for widgeten du vil bruke (se under), f.eks.
+    <code>https://kasterna.github.io/streambim-widgets/sok-armering/index.html</code>
+  </div>
+
   <h1>StreamBIM-widgets</h1>
   <p>Disse sidene er StreamBIM-widgets. De virker bare når de åpnes inni et StreamBIM-prosjekt der widgeten er aktivert.</p>
 
@@ -41,5 +56,10 @@
       <p>URL: <code>https://kasterna.github.io/streambim-widgets/sok-armering/index.html</code></p>
     </div>
   </div>
+
+  <script>
+    // Inni en iframe (StreamBIM) er denne siden alltid feil: den er ingen widget.
+    if (window.parent !== window) document.getElementById("framed-warning").hidden = false;
+  </script>
 </body>
 </html>

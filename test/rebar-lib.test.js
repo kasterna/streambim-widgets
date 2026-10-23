@@ -136,6 +136,31 @@ test.describe("groupRebar", () => {
   test("returns no rows for an empty input", () => {
     assert.deepEqual(groupRebar([]), { rows: [], missingPostnr: 0 });
   });
+
+  test("counts bars from Antall when one IFC object is a whole bar set", () => {
+    const { rows } = groupRebar([
+      { guid: "set1", properties: { "KS_Armering~Posisjonsnummer": "5", "KS_Armering~Antall": 38 } },
+      { guid: "set2", properties: { "KS_Armering~Posisjonsnummer": "5", "KS_Armering~Antall": "12" } },
+    ]);
+    assert.equal(rows[0].count, 50);
+    assert.equal(rows[0].objects, 2);
+    assert.deepEqual(rows[0].guids, ["set1", "set2"]);
+  });
+
+  test("counts one bar per object when Antall is missing or not a positive number", () => {
+    const { rows } = groupRebar([
+      { guid: "a", properties: { Posisjonsnummer: "7" } },
+      { guid: "b", properties: { Posisjonsnummer: "7", Antall: "ukjent" } },
+      { guid: "c", properties: { Posisjonsnummer: "7", Antall: 0 } },
+    ]);
+    assert.equal(rows[0].count, 3);
+    assert.equal(rows[0].objects, 3);
+  });
+
+  test("recognizes a plain Diameter property (Revit export)", () => {
+    const { rows } = groupRebar([{ guid: "a", properties: { "KS_Armering~Posisjonsnummer": "5", "KS_Armering~Diameter": 10 } }]);
+    assert.equal(rows[0].diameter, 10);
+  });
 });
 
 test.describe("sortRows", () => {

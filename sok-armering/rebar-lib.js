@@ -12,10 +12,13 @@
    *  endre eksisterende — andre prosjekter er avhengige av dem). */
   const FIELDS = {
     postnr: ["Posisjonsnummer", "ARM.07 - Posnr"],
-    diameter: ["Diameter jern", "ARM.08 - Stangdiameter"],
+    diameter: ["Diameter jern", "ARM.08 - Stangdiameter", "Diameter"],
     lengde: ["Armeringslengde", "ARM.80 - Kapplengde"], // ikke ARM.81 - Totallengde (sum for gruppen)
     formkode: ["Formkode", "ARM.37 - Formkode"],
     segment: ["Segment"],
+    // Antall stenger i objektet. Revit eksporterer et helt armeringssett som ÉTT IFC-objekt
+    // (f.eks. 38 bøyler), så å telle objekter gir for lavt antall.
+    antall: ["Antall"],
   };
 
   /** Søkene som til sammen definerer "armering" i modellen (unionen av alle treff), altså
@@ -76,9 +79,16 @@
     return hit ? hit.value : undefined;
   }
 
-  /** Grupperer [{guid, properties}] per posisjonsnummer. Diameter/lengde/formkode/segment
-   *  tas fra første stang i gruppen (kjent begrensning: avvikende verdier innen samme
-   *  postnr vises ikke). */
+  /** Stenger i ett IFC-objekt: Antall-egenskapen når den er et positivt tall, ellers 1. */
+  function barsIn(properties) {
+    const antall = Number(valueOf(findProperty(properties, FIELDS.antall)));
+    return Number.isFinite(antall) && antall > 0 ? antall : 1;
+  }
+
+  /** Grupperer [{guid, properties}] per posisjonsnummer. `count` er antall stenger (sum av
+   *  Antall), `objects` antall IFC-objekter. Diameter/lengde/formkode/segment tas fra
+   *  første objekt i gruppen (kjent begrensning: avvikende verdier innen samme postnr
+   *  vises ikke). */
   function groupRebar(items) {
     const groups = new Map();
     let missingPostnr = 0;
@@ -96,13 +106,16 @@
           lengde: valueOf(findProperty(properties, FIELDS.lengde)),
           formkode: valueOf(findProperty(properties, FIELDS.formkode)),
           segment: valueOf(findProperty(properties, FIELDS.segment)),
+          count: 0,
           guids: [],
         });
       }
-      groups.get(key).guids.push(guid);
+      const group = groups.get(key);
+      group.count += barsIn(properties);
+      group.guids.push(guid);
     }
 
-    const rows = Array.from(groups.values()).map((row) => ({ ...row, count: row.guids.length }));
+    const rows = Array.from(groups.values()).map((row) => ({ ...row, objects: row.guids.length }));
     return { rows, missingPostnr };
   }
 

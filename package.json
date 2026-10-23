@@ -13,6 +13,7 @@
     "streambim-widget-api": "^3.0.0"
   },
   "devDependencies": {
-    "http-server": "^14.1.1"
+    "http-server": "^14.1.1",
+    "three": "^0.170.0"
   }
 }

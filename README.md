@@ -13,10 +13,11 @@ Samlemappe for egne StreamBIM-widgets. En StreamBIM-widget er en vanlig nettside
 Lister all armering i modellen gruppert per posisjonsnummer:
 
 - Kolonnene er postnr, antall, diameter, lengde, formkode og segment. Klikk på en overskrift for å sortere.
+- **Antall** er antall stenger. Revit eksporterer et helt armeringssett som ett IFC-objekt, så widgeten summerer egenskapen `Antall` og teller 1 per objekt der den mangler.
 - **Liste → modell:** klikk en rad, så highlightes alle stenger med det postnummeret og kameraet zoomer til gruppen.
 - **Modell → liste:** klikk en stang i 3D, så utvides valget til alle stenger med samme postnr og raden flyttes øverst.
 - Lista lastes automatisk når widgeten åpnes. «Oppdater liste» henter den på nytt.
-- Både Tekla-navn (`Posisjonsnummer`, `Diameter jern` …) og RIB-navn (`ARM.07 - Posnr`, `ARM.08 - Stangdiameter` …) støttes samtidig.
+- Tekla-navn (`Posisjonsnummer`, `Diameter jern` …), RIB-navn (`ARM.07 - Posnr`, `ARM.08 - Stangdiameter` …) og Revit-eksport (`Posisjonsnummer`, `Diameter`, `Antall` …) støttes samtidig.
 - **Feilsøking: inspiser valgt element** nederst viser hvilke egenskapsnavn widgeten fant på sist klikkede element, pluss hele svaret fra StreamBIM. Bruk den ved første test i et ekte prosjekt.
 
 Kjente begrensninger:
@@ -40,6 +41,20 @@ Første gang:
 
 Endringer senere: commit og push i GitHub Desktop, og vent ca. ett minutt. StreamBIM laster siden på nytt fra URL-en, så det trengs ingen ny registrering. Repoet må være **offentlig** for gratis GitHub Pages. Det er greit, for det ligger ingen hemmeligheter her.
 
+## Teste mot ekte StreamBIM før widgeten er aktivert
+
+`dev/streambim-host.html` åpner ditt StreamBIM-prosjekt i StreamBIM sin *embedded*-modus og kobler widgeten til det. Da kan du teste mot ekte modeller uten å vente på Rendra.
+
+1. Start den lokale serveren med `npm run dev`.
+2. Åpne `http://localhost:8084/dev/streambim-host.html` i **Chrome**, der du er logget inn i StreamBIM. Inni rammen i Claude-appens nettleser fikk ikke StreamBIM startet 3D.
+3. Lim inn URL-en fra adressefeltet når modellen er åpen i StreamBIM, la **Eget vindu** stå valgt, og trykk **Koble til**.
+4. StreamBIM åpnes i et eget vindu, med din vanlige innlogging. Ber den deg logge inn, gjør det og trykk **Koble til** igjen.
+5. Widgeten til venstre jobber nå mot den ekte modellen. Klikk i StreamBIM-vinduet for å teste modell → liste.
+   - Loggen nederst viser hvert kall og svar mellom widgeten og StreamBIM.
+   - **Utforsk API-et** henter etasjer, lag og kamera.
+
+Valget **I ramme** viser StreamBIM inni siden, men da deler ikke nettleseren innloggingen din med StreamBIM.
+
 ## Lage en ny widget
 
 1. Lag en ny mappe på toppnivå, f.eks. `min-widget/`, med `index.html`.
@@ -60,13 +75,29 @@ npm test        # enhetstester (node --test)
 
 Åpne `http://localhost:8084/dev/mock-host.html` for å kjøre widgeten mot den falske StreamBIM-verten. Etter oppgradering av `streambim-widget-api` kjører du `npm run vendor` for å kopiere ny `dist`-fil inn i `vendor/`.
 
+### Egen armeringsmodell i prøvebenken
+
+Prøvebenken kan vise en ekte armeringsmodell i 3D. Klikk på stenger og se highlight og zoom fra widgeten. Lag testmodellen fra IFC-filene med Python og ifcopenshell:
+
+```bash
+python tools/ifc-til-testmodell.py "sti/til/ARM.ifc" --kontekst "sti/til/KON.ifc" --navn mitt-prosjekt
+```
+
+Den legges i `dev/models/` og velges automatisk i prøvebenken. Hvis du har flere modeller, bytter du i **Modell**-menyen. `dev/models/` er i `.gitignore`, så prosjektmodeller blir aldri publisert.
+
 ## Struktur
 
 ```
 index.html                 – landingsside på GitHub Pages (liste over widgets)
 vendor/                    – streambim-widget-api.min.js, delt av alle widgets
 sok-armering/              – Søk Armering-widgeten (index.html, app.js, rebar-lib.js, icon.svg)
-dev/                       – mock-host.html/js + mock-model.js: lokal StreamBIM-etterligning
+dev/                       – mock-host.html: widget mot falsk StreamBIM (prøvebenk)
+                             streambim-host.html: widget mot ekte StreamBIM (embedded-modus)
+                             fake-viewer.html: falsk StreamBIM for å teste streambim-host
+                             mock-api.js + mock-model.js: felles falskt API og testdata
+                             model-view.js: 3D-visning av testmodeller (three.js)
+                             models/: testmodeller laget fra IFC (lokalt, ikke i git)
+tools/                     – ifc-til-testmodell.py: IFC → testmodell for prøvebenken
 test/                      – enhetstester for ren logikk
 docs/                      – API-notater og fallgruver
 ```

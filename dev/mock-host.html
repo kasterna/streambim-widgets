@@ -3,6 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <title>StreamBIM mock-vert</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../node_modules/three/build/three.module.js",
+        "three/addons/": "../node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
   <style>
     html, body { height: 100%; margin: 0; }
     body {
@@ -40,6 +48,8 @@
       align-content: flex-start;
       gap: 6px;
     }
+    #view.three { display: block; padding: 0; overflow: hidden; position: relative; }
+    #view.three canvas { display: block; }
     .tile {
       font-size: 11px;
       padding: 6px 8px;
@@ -72,6 +82,11 @@
   </div>
   <div id="main">
     <div id="controls">
+      <label>Modell
+        <select data-setting="model" id="model-select">
+          <option value="testdata">Oppdiktet testdata (knapper)</option>
+        </select>
+      </label>
       <label>Egenskapsformat
         <select data-setting="format">
           <option value="flat">flat, array-verdier</option>
@@ -89,6 +104,7 @@
 
   <script src="../vendor/streambim-widget-api.min.js"></script>
   <script src="mock-model.js"></script>
+  <script src="mock-api.js"></script>
   <script src="mock-host.js"></script>
 </body>
 </html>

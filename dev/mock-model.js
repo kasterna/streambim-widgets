@@ -17,8 +17,7 @@
         name: `${name} #${i + 1}`,
         kind,
         center: [counter * 0.5, i * 0.2, 1.5],
-        pset,
-        props,
+        psets: { [pset]: props },
       });
     }
   }

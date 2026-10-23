@@ -121,7 +121,8 @@ async function fetchRebarList() {
     hasLoaded = true;
     renderTable();
 
-    countEl.textContent = `${items.length} armeringselementer (${rows.length} unike postnr).`;
+    const bars = rows.reduce((sum, row) => sum + row.count, 0);
+    countEl.textContent = `${bars} stenger i ${items.length} IFC-objekter (${rows.length} unike postnr).`;
     if (missingPostnr > 0) {
       showNote(
         `${missingPostnr} elementer manglet postnr-egenskapen. Klikk ett av dem i 3D-vieweren og ` +
@@ -129,7 +130,7 @@ async function fetchRebarList() {
       );
     }
     setStatus("Tilkoblet StreamBIM ✔", "ok");
-    log(`Hentet ${items.length} armeringselementer, ${rows.length} unike postnr.`);
+    log(`Hentet ${items.length} IFC-objekter med ${bars} stenger, ${rows.length} unike postnr.`);
   } catch (err) {
     setStatus("Feil ved henting av armering ✘", "error");
     log("Feil: " + errText(err));

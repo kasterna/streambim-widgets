@@ -2,3 +2,6 @@ node_modules/
 .claude/settings.local.json
 *.log
 graphify-out/
+# Testmodeller laget fra prosjekt-IFC-er (tools/ifc-til-testmodell.py) — aldri i det offentlige repoet
+dev/models/
+__pycache__/

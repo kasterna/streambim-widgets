@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <title>Søk Armering mot ekte StreamBIM</title>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      background: #2b2f33;
+      color: #eee;
+    }
+    #topbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      padding: 8px 10px;
+      border-bottom: 1px solid #444;
+    }
+    #url-input { flex: 1 1 420px; padding: 5px 6px; }
+    #status { padding: 4px 10px 6px; min-height: 16px; }
+    #status.ok { color: #8fdf9f; }
+    #status.busy { color: #ffd76a; }
+    #status.error { color: #ff8f8f; }
+    #panes { flex: 1; display: flex; min-height: 0; }
+    #widget-frame {
+      width: 380px;
+      flex: 0 0 380px;
+      border: 0;
+      border-right: 1px solid #444;
+      background: #fff;
+    }
+    #viewer-pane { flex: 1; display: flex; min-width: 0; }
+    #viewer-frame { flex: 1; border: 0; background: #1d2023; }
+    #viewer-note { margin: auto; color: #aaa; }
+    #bottom {
+      height: 230px;
+      display: flex;
+      border-top: 1px solid #444;
+      font-family: Consolas, monospace;
+      font-size: 11px;
+    }
+    #bottom section { display: flex; flex-direction: column; min-width: 0; }
+    #bottom h3 { font: bold 11px Arial, sans-serif; color: #aaa; margin: 6px 8px; }
+    #log-section { flex: 2; border-right: 1px solid #444; }
+    #log { flex: 1; overflow: auto; margin: 0; padding: 0 8px 8px 8px; list-style: none; color: #9fd3c7; }
+    #log .error { color: #ff8f8f; }
+    #log .event { color: #ffd76a; }
+    #log .ok { color: #8fdf9f; }
+    #explore-section { flex: 1; }
+    #explore-buttons { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 8px 4px; }
+    #explore-output, #camera-output {
+      flex: 1;
+      overflow: auto;
+      margin: 0 8px 8px;
+      white-space: pre-wrap;
+      color: #ddd;
+    }
+    #camera-output { flex: 0 0 60px; }
+  </style>
+</head>
+<body>
+  <div id="topbar">
+    <label for="url-input">StreamBIM-prosjekt:</label>
+    <input id="url-input" placeholder="Lim inn URL-en fra adressefeltet i StreamBIM (eller bare prosjekt-ID-en)" />
+    <select id="mode-select" title="Hvor StreamBIM åpnes">
+      <option value="window">Eget vindu</option>
+      <option value="frame">I ramme</option>
+    </select>
+    <select id="widget-select" title="Hvilken versjon av widgeten">
+      <option value="local">Widget: lokal kode</option>
+      <option value="published">Widget: publisert</option>
+    </select>
+    <button id="connect-btn" type="button">Koble til</button>
+  </div>
+  <div id="status">Lim inn prosjekt-URL-en og trykk «Koble til».</div>
+
+  <div id="panes">
+    <iframe id="widget-frame" title="Søk Armering"></iframe>
+    <div id="viewer-pane">
+      <iframe id="viewer-frame" title="StreamBIM"></iframe>
+      <div id="viewer-note" hidden>StreamBIM er åpnet i eget vindu.</div>
+    </div>
+  </div>
+
+  <div id="bottom">
+    <section id="log-section">
+      <h3>Kall mellom widget og StreamBIM (nyeste øverst)</h3>
+      <ol id="log"></ol>
+    </section>
+    <section id="explore-section">
+      <h3>Utforsk API-et</h3>
+      <div id="explore-buttons">
+        <button type="button" data-explore="getProjectId" disabled>Prosjekt</button>
+        <button type="button" data-explore="getFloors" disabled>Etasjer</button>
+        <button type="button" data-explore="getLayers" disabled>Lag</button>
+        <button type="button" data-explore="getCameraState" disabled>Kamera</button>
+        <button type="button" data-explore="getViewportState" disabled>Viewport</button>
+        <button type="button" data-explore="getSpaces" disabled>Rom</button>
+      </div>
+      <pre id="explore-output"></pre>
+      <h3>Siste cameraChanged</h3>
+      <pre id="camera-output"></pre>
+    </section>
+  </div>
+
+  <script src="../vendor/streambim-widget-api.min.js"></script>
+  <script src="streambim-url.js"></script>
+  <script src="streambim-host.js"></script>
+</body>
+</html>
