@@ -5,15 +5,28 @@
  * Objektene har formen {guid, name, kind, center, psets: {Pset: {Egenskap: verdi}}} —
  * enten de oppdiktede i mock-model.js eller en ekte modell fra tools/ifc-til-testmodell.py.
  *
- * Innstillinger: format=flat|tilde|nested (formen på getObjectInfo().properties),
- * kind=false (ingen støtte for @kind-søk), search=false (ingen applyObjectSearch). */
+ * Innstillinger (URL-parametre):
+ *   format=streambim  (standard) som ekte StreamBIM: IFC-attributter i `properties`,
+ *                     Pset-ene i `groups[]` med {key, value} som tekst
+ *   format=flat|tilde|nested  eldre gjetninger om formen, for å teste findProperty
+ *   findfilter=1      findObjects filtrerer på nøkkel/verdi. Standard er AV, fordi ekte
+ *                     StreamBIM ga de samme objektene for hver søkeverdi i live-test.
+ *   kind=0            @kind-søk gir ingen treff
+ *   search=0          applyObjectSearch/zoomToSearchResult støttes ikke */
 (function () {
   function readSettings(params) {
     return {
-      format: params.get("format") || "flat",
+      format: params.get("format") || "streambim",
+      findfilter: params.get("findfilter") === "1",
       kind: params.get("kind") !== "0",
       search: params.get("search") !== "0",
     };
+  }
+
+  /** "ReinforcingBar" → "Reinforcing bar", slik ekte StreamBIM viser @kind. */
+  function readableKind(kind) {
+    const words = kind.replace(/([a-z])([A-Z])/g, "$1 $2").split(" ");
+    return [words[0], ...words.slice(1).map((w) => w.toLowerCase())].join(" ");
   }
 
   function createMockApi(settings, onCall, objects = window.MockModel.objects) {
@@ -33,26 +46,68 @@
       state.camera = text;
     }
 
-    /** Bygger properties i valgt form — de tre formene widgeten skal tåle. Ved flat form
-     *  vinner siste Pset hvis samme egenskapsnavn finnes i flere. */
-    function propertiesFor(obj) {
+    /** getObjectInfo()-svaret i valgt form. "streambim" er formen ekte StreamBIM bruker. */
+    function objectInfoFor(obj) {
+      if (settings.format === "streambim") {
+        return {
+          layer: "MockARM",
+          properties: { "@kind": readableKind(obj.kind), Name: obj.name, "Global Id": obj.guid, BaseType: "ifcelement" },
+          groups: Object.entries(obj.psets).map(([label, props]) => ({
+            label,
+            source: "GRAPH",
+            content: {
+              properties: Object.entries(props).map(([key, value]) => ({
+                key,
+                value: String(value),
+                valueType: typeof value === "number" ? "float8" : "str",
+              })),
+              children: null,
+            },
+          })),
+          center: obj.center,
+          floors: ["1001"],
+          building: "1000",
+        };
+      }
       const entries = Object.entries(obj.psets).flatMap(([pset, props]) =>
         Object.entries(props).map(([key, value]) => ({ pset, key, value }))
       );
-      if (settings.format === "tilde") return Object.fromEntries(entries.map((e) => [`${e.pset}~${e.key}`, e.value]));
-      if (settings.format === "nested") return obj.psets;
-      return Object.fromEntries(entries.map((e) => [e.key, [e.value]]));
+      let properties;
+      if (settings.format === "tilde") properties = Object.fromEntries(entries.map((e) => [`${e.pset}~${e.key}`, e.value]));
+      else if (settings.format === "nested") properties = obj.psets;
+      else properties = Object.fromEntries(entries.map((e) => [e.key, [e.value]])); // flat
+      return { guid: obj.guid, name: obj.name, center: obj.center, properties };
     }
 
-    function matches(obj, key, value) {
-      if (key === "@kind") return settings.kind && obj.kind === value;
-      return Object.values(obj.psets).some(
-        (props) => Object.prototype.hasOwnProperty.call(props, key) && String(props[key]) === String(value)
+    /** Ett søkekriterium: @kind (lesbar eller IFC-form), "Pset~Egenskap" eller bare
+     *  egenskapsnavnet, eventuelt avgrenset til ett Pset. */
+    function matches(obj, key, value, pset) {
+      if (key === "@kind") {
+        const wanted = String(value).toLowerCase();
+        return settings.kind && (obj.kind.toLowerCase() === wanted || readableKind(obj.kind).toLowerCase() === wanted);
+      }
+      const [psetName, propKey] = key.includes("~") ? key.split("~") : [pset, key];
+      return Object.entries(obj.psets).some(
+        ([name, props]) =>
+          (!psetName || name === psetName) &&
+          Object.prototype.hasOwnProperty.call(props, propKey) &&
+          String(props[propKey]) === String(value)
       );
     }
 
-    function search({ key, value, limit = 100 }) {
-      return objects.filter((o) => matches(o, key, value)).slice(0, limit).map((o) => o.guid);
+    /** Støtter både {key, value, limit} og README-formatet {filter: {rules: [[regel]]}, page}
+     *  (ytre liste = ELLER, indre = OG) samt demoens {filter: {key, value}}. */
+    function search(query) {
+      const limit = query.limit || (query.page && query.page.limit) || 100;
+      let predicate;
+      if (query.filter && Array.isArray(query.filter.rules)) {
+        predicate = (o) =>
+          query.filter.rules.some((group) => group.every((rule) => matches(o, rule.propKey, rule.propValue, rule.psetName)));
+      } else {
+        const { key, value } = query.filter || query;
+        predicate = (o) => matches(o, key, value);
+      }
+      return objects.filter(predicate).slice(0, limit).map((o) => o.guid);
     }
 
     function unsupported(name) {
@@ -70,11 +125,19 @@
       getFloors: async () => [{ id: 1, name: "Plan 1", height: 0 }, { id: 2, name: "Plan 2", height: 3.6 }],
       getLayers: async () => ({ RIB: true, ARK: false }),
       getCameraState: async () => ({ position: [10, 10, 10], quaternion: [1, 0, 0, 0] }),
-      findObjects: async (query) => search(query),
+      // Uten findfilter=1 gir findObjects alle objektene, slik ekte StreamBIM gjorde i live-test.
+      findObjects: async (query) =>
+        settings.findfilter ? search(query) : objects.slice(0, query.limit || 100).map((o) => o.guid),
       getObjectInfo: async (guid) => {
         const obj = byGuid.get(guid);
-        if (!obj) throw { code: "OBJECT_NOT_FOUND", detail: guid };
-        return { guid, name: obj.name, center: obj.center, properties: propertiesFor(obj) };
+        if (!obj) throw { code: "unknown", debug: guid };
+        return objectInfoFor(obj);
+      },
+      getObjectInfoForSearch: async (query) => search(query).map((guid) => objectInfoFor(byGuid.get(guid))),
+      valuesForObjectProperty: async (psetAndKey) => {
+        const [pset, key] = psetAndKey.split("~");
+        const values = objects.map((o) => o.psets[pset] && o.psets[pset][key]).filter((v) => v !== undefined);
+        return [...new Set(values.map(String))];
       },
       highlightObject: async (guid) => {
         state.highlighted.add(guid);

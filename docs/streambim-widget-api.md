@@ -44,7 +44,7 @@ Kortversjon av [`streambim-widget-api`](https://github.com/streambim/streambim-w
 |---|---|
 | `getProjectId()`, `getBuildingId()`, `getUserEmail()` | |
 | `findObjects({key, value, limit})` → `guid[]` | Enkelt søk på én egenskap. `key: '@kind'` = IFC-klassen uten `Ifc` (demoen bruker `'Door'`/`'Space'`) |
-| `getObjectInfo(guid)` → `ObjectInfo` | **Formen er ikke dokumentert.** Demoen bruker `.properties[navn]` (av og til en array, se `['System Global Id'][0]`) og `.center` |
+| `getObjectInfo(guid)` → `ObjectInfo` | Formen er ikke dokumentert, men nå bekreftet live. Pset-egenskapene ligger i `groups`, ikke i `properties` (se «Bekreftet mot ekte StreamBIM») |
 | `getObjectInfoForSearch({filter, page, sort})` | Info for et helt søkeresultat i ett kall. Hvordan GUID-ene er koblet til resultatet er ukjent |
 | `applyObjectSearch(query, replace)` → `guid[]` | Gjør søket til aktivt utvalg |
 | `setSearchVisualizationMode('HIDDEN'\|'FADED'\|'ORIGINAL')` | Hvordan objekter utenfor søket vises |
@@ -71,6 +71,32 @@ Hele lista står i `node_modules/streambim-widget-api/README.md`. Den mest kompl
 - **Klikk i modellen** kommer som `pickedObject`, og bare fra brukerklikk.
 
 ## Bekreftet mot ekte StreamBIM (2026-10-23)
+
+### Widget i ekte prosjekt (Revit-eksport, IFC4X3, 255 armeringsobjekter)
+
+- `connectToParent()` virker. Referrer er `https://app.streambim.com/`.
+- **`getObjectInfo()` har denne formen** (forkortet; et fullt eksempel ligger i `test/fixtures/object-info.json`):
+  ```js
+  {
+    layer: "…ARM",
+    properties: {                      // bare IFC-attributter og @-felt
+      "@kind": "Reinforcing bar",      // lesbar tekst, IKKE "ReinforcingBar"
+      Name, "Long Name", Description, "Global Id", "Type Object Global Id",
+      "@Building Storey": { "@iid": "1001", Name: "…" }, "@Group Layer", "@Document Id", BaseType: "ifcelement", …
+    },
+    groups: [                          // ett element per Pset (+ "Location", "Geometry", "Type")
+      { label: "KS_Armering", source: "GRAPH",
+        content: { properties: [ { key: "Posisjonsnummer", value: "31", valueType: "str", valueItem: "<base64>", measure: "label" }, … ] } },
+    ],
+    center: [x, y, z], bbox: [6 tall], floors: ["1001"], spaces: [], document: "1000", building: "1000", …
+  }
+  ```
+  Verdiene i `groups` er alltid tekst (`"12385"`, `"1"`), også tall.
+- `valueItem` er base64 av StreamBIM sin egen søkenøkkel, `ifcelement~KS_Armering~Posisjonsnummer~str~31`. StreamBIM adresserer altså egenskaper som *Pset + egenskap*.
+- **`findObjects({key, value})` filtrerer ikke slik README sier.** Hver søkeverdi ga de samme 255 objektene: «ReinforcingBar», «IfcReinforcingMesh», og til og med «Common Type», som ikke finnes. Sjekk derfor alltid `@kind` på objektene etterpå.
+- Om `applyObjectSearch` / `getObjectInfoForSearch` filtrerer med regel-formatet (`psetName`/`propKey`/`propValue`), er **ikke bekreftet ennå**. Knappen «Test søk» i widgetens Feilsøking måler det.
+
+### Testsiden mot app.streambim.com
 
 Testet med `dev/streambim-host.html` mot `app.streambim.com` med en oppdiktet prosjekt-ID, uten innlogging og uten modell:
 

@@ -1,15 +1,145 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  FIELDS,
   MISSING_POSTNR,
   flattenProperties,
   findProperty,
+  objectProperties,
+  isRebarObject,
   groupRebar,
+  groupSearchQueries,
+  isUsableGroupSearch,
   sortRows,
   formatLengde,
   moveToTop,
   mapWithConcurrency,
 } = require("../sok-armering/rebar-lib.js");
+// Ekte getObjectInfo()-svar fra StreamBIM (forkortet, nøytrale navn).
+const realInfo = require("./fixtures/object-info.json");
+
+test.describe("objectProperties (ekte StreamBIM-format)", () => {
+  test("lifts StreamBIM groups into Pset objects so findProperty can read them", () => {
+    const props = objectProperties(realInfo);
+    assert.deepEqual(findProperty(props, FIELDS.postnr), {
+      key: "KS_Armering~Posisjonsnummer",
+      name: "Posisjonsnummer",
+      value: "31",
+    });
+    assert.equal(findProperty(props, FIELDS.diameter).value, "12");
+    assert.equal(findProperty(props, FIELDS.lengde).value, "12385");
+    assert.equal(findProperty(props, FIELDS.antall).value, "1");
+  });
+
+  test("keeps top-level attributes like @kind and Name", () => {
+    const props = objectProperties(realInfo);
+    assert.equal(props["@kind"], "Reinforcing bar");
+    assert.equal(props.Name, "Rebar Bar:K500C-T Ø12:443220");
+  });
+
+  test("returns plain properties unchanged when there are no groups", () => {
+    assert.deepEqual(objectProperties({ properties: { Posisjonsnummer: ["5"] } }), { Posisjonsnummer: ["5"] });
+  });
+
+  test("tolerates missing info, null groups and groups without content", () => {
+    assert.deepEqual(objectProperties(null), {});
+    assert.deepEqual(objectProperties({ properties: { a: 1 }, groups: null }), { a: 1 });
+    assert.deepEqual(objectProperties({ groups: [{ label: "X" }, { content: { properties: [{ key: "k", value: "v" }] } }] }), {});
+  });
+});
+
+test.describe("isRebarObject", () => {
+  test("accepts StreamBIM's readable @kind values and IFC class names", () => {
+    for (const kind of ["Reinforcing bar", "Reinforcing mesh", "IfcReinforcingBar", "ReinforcingMesh"]) {
+      assert.equal(isRebarObject({ "@kind": kind }), true, kind);
+    }
+  });
+
+  test("rejects other kinds", () => {
+    assert.equal(isRebarObject({ "@kind": "Wall" }), false);
+    assert.equal(isRebarObject({ "@kind": "Slab" }), false);
+  });
+
+  test("keeps objects without @kind, since the search found them as rebar", () => {
+    assert.equal(isRebarObject({ Posisjonsnummer: "5" }), true);
+    assert.equal(isRebarObject(undefined), true);
+  });
+});
+
+test.describe("groupRebar with real StreamBIM data", () => {
+  test("reads every column from groups and remembers pset and building for search", () => {
+    const { rows } = groupRebar([{ guid: "g", properties: objectProperties(realInfo), building: realInfo.building }]);
+    assert.deepEqual(
+      { ...rows[0] },
+      {
+        postnr: "31",
+        searchKey: "Posisjonsnummer",
+        searchPset: "KS_Armering",
+        building: "1000",
+        diameter: "12",
+        lengde: "12385",
+        formkode: "00",
+        segment: undefined,
+        count: 1,
+        guids: ["g"],
+        objects: 1,
+      }
+    );
+  });
+});
+
+test.describe("groupSearchQueries", () => {
+  test("tries a pset rule first, then plain key/value", () => {
+    const row = { postnr: "31", searchKey: "Posisjonsnummer", searchPset: "KS_Armering", building: "1000" };
+    const queries = groupSearchQueries(row, 500);
+    assert.deepEqual(
+      queries.map((q) => q.query),
+      [
+        {
+          filter: { rules: [[{ buildingId: "1000", psetName: "KS_Armering", propKey: "Posisjonsnummer", propValue: "31" }]] },
+          page: { limit: 500, skip: 0 },
+        },
+        { key: "Posisjonsnummer", value: "31", limit: 500 },
+      ]
+    );
+  });
+
+  test("leaves out buildingId and the pset rule when they are unknown", () => {
+    assert.deepEqual(
+      groupSearchQueries({ postnr: "7", searchKey: "Posisjonsnummer", searchPset: null, building: undefined }, 10).map((q) => q.query),
+      [{ key: "Posisjonsnummer", value: "7", limit: 10 }]
+    );
+    const [rule] = groupSearchQueries({ postnr: "7", searchKey: "P", searchPset: "S", building: undefined }, 10);
+    assert.deepEqual(rule.query.filter.rules, [[{ psetName: "S", propKey: "P", propValue: "7" }]]);
+  });
+
+  test("returns nothing for the missing-postnr group", () => {
+    assert.deepEqual(groupSearchQueries({ postnr: MISSING_POSTNR, searchKey: null }, 10), []);
+  });
+});
+
+test.describe("isUsableGroupSearch", () => {
+  const row = { guids: ["a", "b"], objects: 2 };
+
+  test("accepts hits that contain the group", () => {
+    assert.equal(isUsableGroupSearch(["a", "b", "x"], row, 255), true);
+  });
+
+  test("rejects empty hits and hits that miss the group", () => {
+    assert.equal(isUsableGroupSearch([], row, 255), false);
+    assert.equal(isUsableGroupSearch(undefined, row, 255), false);
+    assert.equal(isUsableGroupSearch(["x", "y"], row, 255), false);
+  });
+
+  test("rejects a search that returned everything for a smaller group (filter ignored)", () => {
+    const everything = Array.from({ length: 255 }, (_, i) => (i === 0 ? "a" : `o${i}`));
+    assert.equal(isUsableGroupSearch(everything, row, 255), false);
+  });
+
+  test("accepts everything when the group really is everything", () => {
+    assert.equal(isUsableGroupSearch(["a", "b"], { guids: ["a", "b"], objects: 2 }, 2), true);
+  });
+});
 
 test.describe("flattenProperties", () => {
   test("returns empty list for missing or non-object input", () => {

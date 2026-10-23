@@ -1,0 +1,100 @@
+{
+  "layer": "TestARM",
+  "properties": {
+    "@kind": "Reinforcing bar",
+    "Name": "Rebar Bar:K500C-T Ø12:443220",
+    "Long Name": "443220",
+    "Description": "",
+    "Global Id": "2hLA8Ucpr4f8PmKdKr73C9",
+    "Type Object Global Id": "T~25U$GSDBf50AfSHjV7QZWJ",
+    "@Building Storey": {
+      "@iid": "1001",
+      "Name": "underside slab"
+    },
+    "@Group Layer": "TestARM",
+    "@Document Id": 1000,
+    "@Building Id": 0,
+    "groups": null,
+    "BaseType": "ifcelement"
+  },
+  "groups": [
+    {
+      "label": "Location",
+      "source": "GRAPH",
+      "content": {
+        "properties": [
+          {
+            "key": "Global Z",
+            "value": "76.03",
+            "valueType": "float8",
+            "valueItem": ""
+          }
+        ],
+        "children": null
+      }
+    },
+    {
+      "label": "KS_Armering",
+      "source": "GRAPH",
+      "content": {
+        "properties": [
+          {
+            "key": "Armeringslengde",
+            "value": "12385",
+            "valueType": "int8",
+            "measure": "integer"
+          },
+          {
+            "key": "Formkode",
+            "value": "00",
+            "valueType": "str",
+            "measure": "label"
+          },
+          {
+            "key": "Antall",
+            "value": "1",
+            "valueType": "int8",
+            "measure": "integer"
+          },
+          {
+            "key": "Posisjonsnummer",
+            "value": "31",
+            "valueType": "str",
+            "measure": "label"
+          },
+          {
+            "key": "Diameter",
+            "value": "12",
+            "valueType": "int8",
+            "measure": "integer"
+          }
+        ],
+        "children": null
+      }
+    },
+    {
+      "label": "Type",
+      "source": "GRAPH",
+      "content": {
+        "properties": [
+          {
+            "key": "Name",
+            "value": "Rebar Bar:K500C-T Ø12",
+            "valueType": "str"
+          }
+        ],
+        "children": null
+      }
+    }
+  ],
+  "center": [
+    -24.28,
+    6.56,
+    76.1
+  ],
+  "floors": [
+    "1001"
+  ],
+  "document": "1000",
+  "building": "1000"
+}

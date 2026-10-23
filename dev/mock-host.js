@@ -53,7 +53,7 @@
   // oppdateres for hvert av de mange getObjectInfo()-kallene.
   const READ_ONLY_CALLS = new Set([
     "getProjectId", "getUserEmail", "getFloors", "getLayers", "getCameraState",
-    "findObjects", "getObjectInfo", "setShowExpandButton",
+    "findObjects", "getObjectInfo", "getObjectInfoForSearch", "valuesForObjectProperty", "setShowExpandButton",
   ]);
 
   let view = null; // 3D-visning når en ekte modell er lastet

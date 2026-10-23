@@ -2,7 +2,11 @@ const {
   FIELDS,
   REBAR_SEARCHES,
   findProperty,
+  objectProperties,
+  isRebarObject,
   groupRebar,
+  groupSearchQueries,
+  isUsableGroupSearch,
   sortRows,
   formatLengde,
   moveToTop,
@@ -26,6 +30,8 @@ const debugToggle = document.getElementById("debug-toggle");
 const debugPanel = document.getElementById("debug-panel");
 const debugOutput = document.getElementById("debug-output");
 const logEl = document.getElementById("log");
+const searchTestBtn = document.getElementById("search-test-btn");
+const copyBtn = document.getElementById("copy-btn");
 
 let rows = []; // grouped rebar rows currently shown
 let sortKey = "postnr";
@@ -33,6 +39,7 @@ let sortDir = 1;
 let selectedKey = null; // postnr of the highlighted row
 let lastPickedGuid = null;
 let hasLoaded = false;
+let rebarObjectCount = 0; // armeringsobjekter i lista — brukes til å avsløre søk som ikke filtrerer
 
 function log(msg) {
   const time = new Date().toLocaleTimeString();
@@ -40,7 +47,7 @@ function log(msg) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-/** StreamBIM avviser med {code, detail}, penpal med Error — vis det som finnes. */
+/** StreamBIM avviser med {code, debug} (README sier {code, detail}), penpal med Error. */
 function errText(err) {
   if (!err) return "ukjent feil";
   return err.code || err.message || JSON.stringify(err);
@@ -56,27 +63,30 @@ function showNote(text) {
   noteEl.classList.toggle("show", Boolean(text));
 }
 
-/** Kjører alle søkene i REBAR_SEARCHES og slår sammen GUID-ene (armering = IFC-klasse
- *  ELLER Common Type). Antall treff per søk logges, så første
- *  live-test viser hvilken strategi StreamBIM faktisk støtter. */
+/** Kjører alle søkene i REBAR_SEARCHES og slår sammen GUID-ene. Treff per søkeverdi
+ *  logges, så det synes om StreamBIM faktisk filtrerer (i første live-test ga alle
+ *  verdier de samme objektene). */
 async function findAllRebarGuids() {
   const guids = new Set();
   for (const search of REBAR_SEARCHES) {
-    let hits = 0;
+    const counts = [];
     for (const value of search.values) {
       try {
         const found = (await StreamBIM.API.findObjects({ key: search.key, value, limit: SEARCH_LIMIT })) || [];
         found.forEach((guid) => guids.add(guid));
-        hits += found.length;
+        counts.push(`"${value}"=${found.length}`);
       } catch (err) {
-        log(`findObjects({key:"${search.key}", value:"${value}"}) feilet: ${errText(err)}`);
+        counts.push(`"${value}"=feil (${errText(err)})`);
       }
     }
-    log(`Søk på ${search.label}: ${hits} treff.`);
+    log(`Søk på ${search.label}: ${counts.join(", ")}.`);
   }
+  log(`Til sammen ${guids.size} unike objekter fra søkene.`);
   return Array.from(guids);
 }
 
+/** Henter info per objekt og beholder bare armering (@kind), siden søkene ikke filtrerer
+ *  pålitelig. Egenskapene samles fra både `properties` og `groups` (objectProperties). */
 async function fetchRebarInfo(guids) {
   const infos = await mapWithConcurrency(
     guids,
@@ -88,9 +98,12 @@ async function fetchRebarInfo(guids) {
       }),
     (done, total) => setStatus(`Henter egenskaper ${done}/${total}...`, "busy")
   );
-  return infos
-    .map((info, i) => (info ? { guid: guids[i], properties: info.properties || {} } : null))
+  const items = infos
+    .map((info, i) => (info ? { guid: guids[i], properties: objectProperties(info), building: info.building } : null))
     .filter(Boolean);
+  const rebar = items.filter((item) => isRebarObject(item.properties));
+  if (rebar.length < items.length) log(`${items.length - rebar.length} objekter var ikke armering (@kind) og ble utelatt.`);
+  return rebar;
 }
 
 async function fetchRebarList() {
@@ -106,7 +119,7 @@ async function fetchRebarList() {
       renderTable();
       countEl.textContent = "0 armeringselementer funnet.";
       showNote(
-        "Fant ingen armering via @kind (ReinforcingBar/ReinforcingMesh) eller Common Type. " +
+        "Fant ingen armering via @kind (Reinforcing bar/mesh) eller Common Type. " +
         "Klikk et armeringselement i 3D-vieweren og åpne \"Feilsøking\" nederst for å se hvilke " +
         "egenskaper StreamBIM faktisk har på elementet."
       );
@@ -117,6 +130,7 @@ async function fetchRebarList() {
     const items = await fetchRebarInfo(guids);
     const { rows: grouped, missingPostnr } = groupRebar(items);
     rows = sortRows(grouped, sortKey, sortDir);
+    rebarObjectCount = items.length;
     selectedKey = null;
     hasLoaded = true;
     renderTable();
@@ -180,29 +194,28 @@ async function highlightGroup(row) {
   await mapWithConcurrency(row.guids, HIGHLIGHT_CONCURRENCY, (guid) => StreamBIM.API.highlightObject(guid));
 }
 
-/** Rammer inn HELE postnr-gruppen via applyObjectSearch() + zoomToSearchResult() på
- *  postnr-egenskapen (visningsmodus ORIGINAL, så resten av modellen ikke tones ned).
- *  UVERIFISERT: feiler søket eller gir 0 treff,
- *  zoomes det til første stang med gotoObject() i stedet. */
+/** Rammer inn HELE postnr-gruppen: prøver søkene fra groupSearchQueries() med
+ *  applyObjectSearch() + zoomToSearchResult() (visningsmodus ORIGINAL, så resten av
+ *  modellen ikke tones ned). Et søk brukes bare hvis det faktisk filtrerte
+ *  (isUsableGroupSearch) — ellers ville zoomen rammet inn hele modellen. Duger ingen,
+ *  nullstilles søket og kameraet går til første objekt med gotoObject(). */
 async function zoomToGroup(row) {
-  if (row.searchKey) {
+  for (const { label, query } of groupSearchQueries(row, SEARCH_LIMIT)) {
     try {
-      const hits = await StreamBIM.API.applyObjectSearch(
-        { key: row.searchKey, value: row.postnr, limit: SEARCH_LIMIT },
-        true
-      );
-      if (hits && hits.length > 0) {
+      const hits = await StreamBIM.API.applyObjectSearch(query, true);
+      if (isUsableGroupSearch(hits, row, rebarObjectCount)) {
         await StreamBIM.API.setSearchVisualizationMode("ORIGINAL");
         await StreamBIM.API.zoomToSearchResult();
-        return "hele gruppen";
+        return `hele gruppen (${label}: ${hits.length} treff)`;
       }
-      log(`applyObjectSearch på "${row.searchKey}" = "${row.postnr}" ga 0 treff.`);
+      log(`Søk (${label}) ga ${hits ? hits.length : 0} treff for ${row.objects} objekter — ikke brukbart.`);
     } catch (err) {
-      log(`Zoom til hele gruppen feilet (${errText(err)}).`);
+      log(`Søk (${label}) feilet: ${errText(err)}.`);
     }
   }
+  await StreamBIM.API.resetObjectSearch().catch(() => {});
   await StreamBIM.API.gotoObject(row.guids[0]);
-  return "første stang";
+  return "første objekt";
 }
 
 /** Liste → modell: highlight og zoom til alle stenger med samme postnr. */
@@ -252,9 +265,10 @@ async function handlePickedObject(result) {
 async function updateDebugPanel(guid) {
   try {
     const info = await StreamBIM.API.getObjectInfo(guid);
+    const properties = objectProperties(info);
     const feltkobling = Object.fromEntries(
       Object.entries(FIELDS).map(([field, names]) => {
-        const hit = findProperty(info && info.properties, names);
+        const hit = findProperty(properties, names);
         return [field, hit ? `${hit.key} = ${hit.value}` : "IKKE FUNNET"];
       })
     );
@@ -264,9 +278,80 @@ async function updateDebugPanel(guid) {
   }
 }
 
+async function countResult(call) {
+  try {
+    const result = await call();
+    return Array.isArray(result) ? result.length : result;
+  } catch (err) {
+    return `feil: ${errText(err)}`;
+  }
+}
+
+/** Kartlegger hvordan StreamBIM sine søk faktisk filtrerer, med raden som er valgt (eller
+ *  første rad med postnr): et søk som filtrerer gir omtrent gruppens antall objekter, et
+ *  som ignorerer filteret gir alle. applyObjectSearch nullstilles etterpå. */
+async function runSearchTest() {
+  const row = rows.find((r) => r.postnr === selectedKey && r.searchKey) || rows.find((r) => r.searchKey);
+  if (!row) {
+    debugOutput.value = "Ingen rad med postnr å teste med. Trykk «Oppdater liste» først.";
+    return;
+  }
+  debugOutput.value = `Tester søk med postnr ${row.postnr}…`;
+  const find = (query) => countResult(() => StreamBIM.API.findObjects(query));
+  const queries = groupSearchQueries(row, SEARCH_LIMIT);
+  const result = {
+    postnr: row.postnr,
+    forventetObjekter: row.objects,
+    armeringsobjekterILista: rebarObjectCount,
+    findObjects: {
+      kindReinforcingBar: await find({ key: "@kind", value: "Reinforcing bar", limit: SEARCH_LIMIT }),
+      kindFinnesIkke: await find({ key: "@kind", value: "Finnes-ikke-xyz", limit: SEARCH_LIMIT }),
+      postnr: await find({ key: row.searchKey, value: row.postnr, limit: SEARCH_LIMIT }),
+      psetPostnr: await find({ key: `${row.searchPset}~${row.searchKey}`, value: row.postnr, limit: SEARCH_LIMIT }),
+    },
+    getObjectInfoForSearch: {},
+    applyObjectSearch: {},
+    valuesForObjectProperty: await countResult(() =>
+      StreamBIM.API.valuesForObjectProperty(`${row.searchPset}~${row.searchKey}`)
+    ),
+  };
+  for (const { label, query } of queries) {
+    result.getObjectInfoForSearch[label] = await countResult(() => StreamBIM.API.getObjectInfoForSearch(query));
+    result.applyObjectSearch[label] = await countResult(() => StreamBIM.API.applyObjectSearch(query, true));
+  }
+  await StreamBIM.API.resetObjectSearch().catch(() => {});
+  debugOutput.value = JSON.stringify({ søketest: result, søk: queries }, null, 2);
+  log(`Søketest ferdig for postnr ${row.postnr}.`);
+}
+
+/** Kopierer rådata + logg. navigator.clipboard er ofte sperret i en iframe på et annet
+ *  domene, så execCommand("copy") er reserve. */
+async function copyDebug() {
+  const text = `${debugOutput.value}\n\n--- Logg ---\n${logEl.value}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    copyBtn.textContent = "Kopiert ✔";
+    return;
+  } catch {
+    // faller tilbake under
+  }
+  const scratch = document.createElement("textarea");
+  scratch.value = text;
+  document.body.appendChild(scratch);
+  scratch.select();
+  const copied = document.execCommand("copy");
+  scratch.remove();
+  copyBtn.textContent = copied ? "Kopiert ✔" : "Kunne ikke kopiere — merk teksten og trykk Ctrl+C";
+}
+
 debugToggle.addEventListener("click", () => {
   debugPanel.classList.toggle("show");
   if (debugPanel.classList.contains("show") && lastPickedGuid) updateDebugPanel(lastPickedGuid);
+});
+searchTestBtn.addEventListener("click", runSearchTest);
+copyBtn.addEventListener("click", () => {
+  copyDebug();
+  setTimeout(() => (copyBtn.textContent = "Kopier rådata og logg"), 3000);
 });
 
 headerCells.forEach((th) => {

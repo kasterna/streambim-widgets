@@ -123,6 +123,16 @@
       gap: 4px;
     }
     #debug-panel.show { display: flex; }
+    #debug-buttons {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    #debug-buttons button {
+      font-size: 11px;
+      padding: 3px 8px;
+      cursor: pointer;
+    }
     #debug-panel label {
       font-size: 11px;
       color: #555;
@@ -164,6 +174,10 @@
 
   <button id="debug-toggle" type="button">Feilsøking: inspiser valgt element</button>
   <div id="debug-panel">
+    <div id="debug-buttons">
+      <button id="copy-btn" type="button">Kopier rådata og logg</button>
+      <button id="search-test-btn" type="button" title="Sjekker hvilke StreamBIM-søk som faktisk filtrerer, med valgt postnr">Test søk</button>
+    </div>
     <label for="debug-output">Rådata for sist klikkede element i 3D-vieweren</label>
     <textarea id="debug-output" readonly placeholder="Klikk på et armeringselement i 3D-vieweren. Her vises hvilke egenskapsnavn widgeten fant (feltkobling) og hele getObjectInfo()-svaret, så du kan se hva StreamBIM faktisk kaller postnr/diameter/lengde/formkode i modellen."></textarea>
     <label for="log">Logg</label>

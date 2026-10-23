@@ -18,7 +18,9 @@ Lister all armering i modellen gruppert per posisjonsnummer:
 - **Modell → liste:** klikk en stang i 3D, så utvides valget til alle stenger med samme postnr og raden flyttes øverst.
 - Lista lastes automatisk når widgeten åpnes. «Oppdater liste» henter den på nytt.
 - Tekla-navn (`Posisjonsnummer`, `Diameter jern` …), RIB-navn (`ARM.07 - Posnr`, `ARM.08 - Stangdiameter` …) og Revit-eksport (`Posisjonsnummer`, `Diameter`, `Antall` …) støttes samtidig.
-- **Feilsøking: inspiser valgt element** nederst viser hvilke egenskapsnavn widgeten fant på sist klikkede element, pluss hele svaret fra StreamBIM. Bruk den ved første test i et ekte prosjekt.
+- **Feilsøking: inspiser valgt element** nederst viser hvilke egenskapsnavn widgeten fant på sist klikkede element, pluss hele svaret fra StreamBIM.
+  - **Kopier rådata og logg** kopierer alt i én operasjon.
+  - **Test søk** måler hvilke StreamBIM-søk som faktisk filtrerer, med postnummeret som er valgt.
 
 Kjente begrensninger:
 
