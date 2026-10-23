@@ -94,6 +94,7 @@ Hele lista står i `node_modules/streambim-widget-api/README.md`. Den mest kompl
   Verdiene i `groups` er alltid tekst (`"12385"`, `"1"`), også tall.
 - `valueItem` er base64 av StreamBIM sin egen søkenøkkel, `ifcelement~KS_Armering~Posisjonsnummer~str~31`. StreamBIM adresserer altså egenskaper som *Pset + egenskap*.
 - **`findObjects({key, value})` filtrerer ikke slik README sier.** Hver søkeverdi ga de samme 255 objektene: «ReinforcingBar», «IfcReinforcingMesh», og til og med «Common Type», som ikke finnes. Sjekk derfor alltid `@kind` på objektene etterpå.
+- **Highlight må komme etter søk.** Widgeten highlightet først og søkte så for å zoome, og da ble ingenting markert i 3D. Det passer med README: `applyObjectSearch` erstatter det aktive utvalget, og `resetObjectSearch` tømmer det. Rekkefølgen er nå zoom → highlight.
 - Om `applyObjectSearch` / `getObjectInfoForSearch` filtrerer med regel-formatet (`psetName`/`propKey`/`propValue`), er **ikke bekreftet ennå**. Knappen «Test søk» i widgetens Feilsøking måler det.
 
 ### Testsiden mot app.streambim.com

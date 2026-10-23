@@ -57,6 +57,11 @@
       color: #555;
     }
     #count:empty { display: none; }
+    #options {
+      font-size: 12px;
+      color: #333;
+    }
+    #options input { vertical-align: middle; margin: 0 4px 0 0; }
     #note {
       font-size: 11px;
       color: #856404;
@@ -163,6 +168,11 @@
     <button id="refresh-btn" disabled>Oppdater liste</button>
   </div>
   <div id="count"></div>
+  <div id="options">
+    <label title="De valgte stengene vises, resten av modellen tones ned. Klikk på valgt rad igjen for å nullstille.">
+      <input type="checkbox" id="fade-toggle" checked /> Ton ned resten av modellen ved valg
+    </label>
+  </div>
   <div id="note"></div>
 
   <div id="table-container">
@@ -199,8 +209,8 @@
   <!-- ?v= er widgetens versjon: øk den ved hver endring. GitHub Pages lar nettleseren
        bruke gamle filer i opptil 10 min; ny ?v= tvinger nye skript så snart denne siden
        selv er hentet på nytt. app.js leser versjonen herfra og viser den. -->
-  <script src="../vendor/streambim-widget-api.min.js?v=2026-10-23.3"></script>
-  <script src="rebar-lib.js?v=2026-10-23.3"></script>
-  <script src="app.js?v=2026-10-23.3"></script>
+  <script src="../vendor/streambim-widget-api.min.js?v=2026-10-23.4"></script>
+  <script src="rebar-lib.js?v=2026-10-23.4"></script>
+  <script src="app.js?v=2026-10-23.4"></script>
 </body>
 </html>

@@ -172,6 +172,14 @@
     return queries;
   }
 
+  /** Samlet utstrekning for en gruppe fra StreamBIM sine bbox-er
+   *  [minX, minY, minZ, maxX, maxY, maxZ]; null hvis ingen er brukbare. */
+  function unionBbox(boxes) {
+    const valid = boxes.filter((b) => Array.isArray(b) && b.length === 6 && b.every(Number.isFinite));
+    if (valid.length === 0) return null;
+    return [0, 1, 2, 3, 4, 5].map((i) => (i < 3 ? Math.min : Math.max)(...valid.map((b) => b[i])));
+  }
+
   /** Et søk duger til zoom bare hvis det traff gruppen og faktisk filtrerte: får vi alle
    *  armeringsobjektene tilbake for en mindre gruppe, ble filteret ignorert (sett i live-
    *  test for findObjects), og zoomen ville rammet inn hele modellen. */
@@ -253,6 +261,7 @@
     groupRebar,
     groupSearchQueries,
     isUsableGroupSearch,
+    unionBbox,
     sortRows,
     formatLengde,
     moveToTop,

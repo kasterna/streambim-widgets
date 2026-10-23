@@ -46,6 +46,29 @@
       state.camera = text;
     }
 
+    /** [minX, minY, minZ, maxX, maxY, maxZ] som ekte StreamBIM, fra 3D-geometrien når den
+     *  finnes, ellers en liten boks rundt midtpunktet (oppdiktet testdata). */
+    const bboxCache = new Map();
+    function bboxOf(obj) {
+      if (!bboxCache.has(obj.guid)) {
+        let box;
+        if (obj.mesh && obj.mesh.v.length) {
+          const v = obj.mesh.v;
+          box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+          for (let i = 0; i < v.length; i += 3) {
+            for (let axis = 0; axis < 3; axis++) {
+              box[axis] = Math.min(box[axis], v[i + axis]);
+              box[axis + 3] = Math.max(box[axis + 3], v[i + axis]);
+            }
+          }
+        } else {
+          box = [...obj.center.map((c) => c - 0.1), ...obj.center.map((c) => c + 0.1)];
+        }
+        bboxCache.set(obj.guid, box);
+      }
+      return bboxCache.get(obj.guid);
+    }
+
     /** getObjectInfo()-svaret i valgt form. "streambim" er formen ekte StreamBIM bruker. */
     function objectInfoFor(obj) {
       if (settings.format === "streambim") {
@@ -65,6 +88,7 @@
             },
           })),
           center: obj.center,
+          bbox: bboxOf(obj),
           floors: ["1001"],
           building: "1000",
         };
@@ -152,9 +176,13 @@
         setFocus([guid], `Objekt ${byGuid.has(guid) ? byGuid.get(guid).name : guid}`);
         return true;
       },
+      // README: applyObjectSearch gjør søket til "the active selection (optionally replacing
+      // any current set)", og resetObjectSearch "clear active search/selection". Live-test
+      // passet med at det visker ut highlight, så mocken gjør det samme.
       applyObjectSearch: settings.search
-        ? async (query) => {
+        ? async (query, replace) => {
             const guids = search(query);
+            if (replace) state.highlighted.clear();
             state.activeSearch = new Set(guids);
             return guids;
           }
@@ -177,6 +205,7 @@
         : unsupported("zoomToSearchResult"),
       resetObjectSearch: async () => {
         state.activeSearch = null;
+        state.highlighted.clear();
         return true;
       },
     };

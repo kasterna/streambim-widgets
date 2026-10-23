@@ -7,6 +7,7 @@ const {
   groupRebar,
   groupSearchQueries,
   isUsableGroupSearch,
+  unionBbox,
   sortRows,
   formatLengde,
   moveToTop,
@@ -25,6 +26,7 @@ const COLUMNS = ["postnr", "count", "diameter", "lengde", "formkode", "segment"]
 const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("refresh-btn");
 const countEl = document.getElementById("count");
+const fadeToggle = document.getElementById("fade-toggle");
 const noteEl = document.getElementById("note");
 const tableContainer = document.getElementById("table-container");
 const tableBody = document.querySelector("#rebar-table tbody");
@@ -43,6 +45,8 @@ let selectedKey = null; // postnr of the highlighted row
 let lastPickedGuid = null;
 let hasLoaded = false;
 let rebarObjectCount = 0; // armeringsobjekter i lista — brukes til å avsløre søk som ikke filtrerer
+const bboxByGuid = new Map(); // guid -> StreamBIM bbox [minX, minY, minZ, maxX, maxY, maxZ]
+const FADE_STORAGE_KEY = "sok-armering-ton-ned";
 
 function log(msg) {
   const time = new Date().toLocaleTimeString();
@@ -104,6 +108,7 @@ async function fetchRebarInfo(guids) {
   const items = infos
     .map((info, i) => (info ? { guid: guids[i], properties: objectProperties(info), building: info.building } : null))
     .filter(Boolean);
+  infos.forEach((info, i) => info && info.bbox && bboxByGuid.set(guids[i], info.bbox));
   const rebar = items.filter((item) => isRebarObject(item.properties));
   if (rebar.length < items.length) log(`${items.length - rebar.length} objekter var ikke armering (@kind) og ble utelatt.`);
   return rebar;
@@ -180,7 +185,7 @@ function renderTable() {
       td.textContent = value ?? "";
       tr.appendChild(td);
     }
-    tr.addEventListener("click", () => selectAndZoom(row));
+    tr.addEventListener("click", () => (row.postnr === selectedKey ? clearSelection() : selectAndZoom(row)));
     tableBody.appendChild(tr);
   }
 
@@ -191,23 +196,32 @@ function renderTable() {
 }
 
 /** StreamBIM har bare enkelt-GUID highlightObject() og ingen samlet "velg disse", så
- *  hele gruppen highlightes én og én med begrenset samtidighet. */
+ *  hele gruppen highlightes én og én med begrenset samtidighet. Returnerer hvor mange
+ *  objekter StreamBIM bekreftet, så loggen viser om markeringen faktisk tok. */
 async function highlightGroup(row) {
   await StreamBIM.API.deHighlightAllObjects();
-  await mapWithConcurrency(row.guids, HIGHLIGHT_CONCURRENCY, (guid) => StreamBIM.API.highlightObject(guid));
+  const results = await mapWithConcurrency(row.guids, HIGHLIGHT_CONCURRENCY, (guid) =>
+    StreamBIM.API.highlightObject(guid).catch(() => false)
+  );
+  return results.filter(Boolean).length;
+}
+
+/** "Ton ned resten" på: FADED, så de valgte stengene skiller seg ut. Av: ORIGINAL. */
+function visualizationMode() {
+  return fadeToggle.checked ? "FADED" : "ORIGINAL";
 }
 
 /** Rammer inn HELE postnr-gruppen: prøver søkene fra groupSearchQueries() med
- *  applyObjectSearch() + zoomToSearchResult() (visningsmodus ORIGINAL, så resten av
- *  modellen ikke tones ned). Et søk brukes bare hvis det faktisk filtrerte
- *  (isUsableGroupSearch) — ellers ville zoomen rammet inn hele modellen. Duger ingen,
- *  nullstilles søket og kameraet går til første objekt med gotoObject(). */
+ *  applyObjectSearch() + zoomToSearchResult(), med visualizationMode() for resten av
+ *  modellen. Et søk brukes bare hvis det faktisk filtrerte (isUsableGroupSearch) —
+ *  ellers ville zoomen rammet inn (og tonet ned) feil objekter. Duger ingen, nullstilles
+ *  søket og kameraet går til første objekt med gotoObject(). */
 async function zoomToGroup(row) {
   for (const { label, query } of groupSearchQueries(row, SEARCH_LIMIT)) {
     try {
       const hits = await StreamBIM.API.applyObjectSearch(query, true);
       if (isUsableGroupSearch(hits, row, rebarObjectCount)) {
-        await StreamBIM.API.setSearchVisualizationMode("ORIGINAL");
+        await StreamBIM.API.setSearchVisualizationMode(visualizationMode());
         await StreamBIM.API.zoomToSearchResult();
         return `hele gruppen (${label}: ${hits.length} treff)`;
       }
@@ -221,16 +235,48 @@ async function zoomToGroup(row) {
   return "første objekt";
 }
 
-/** Liste → modell: highlight og zoom til alle stenger med samme postnr. */
+/** Liste → modell: zoom til og highlight alle stenger med samme postnr. Zoomen MÅ komme
+ *  først: applyObjectSearch erstatter StreamBIM sitt aktive utvalg og resetObjectSearch
+ *  tømmer det, så highlight gjort før zoomen ble visket ut (sett i live-test). */
 async function selectAndZoom(row) {
   selectedKey = row.postnr;
   renderTable();
   try {
-    await highlightGroup(row);
     const target = await zoomToGroup(row);
-    log(`Valgt postnr ${row.postnr} (${row.count} stk), zoomet til ${target}.`);
+    const highlighted = await highlightGroup(row);
+    log(`Valgt postnr ${row.postnr} (${row.count} stk), zoomet til ${target}, highlightet ${highlighted}/${row.objects} objekter.`);
   } catch (err) {
     log("Feil ved valg/zoom: " + errText(err));
+  }
+}
+
+/** Klikk på valgt rad igjen: fjern søk, nedtoning og markering. */
+async function clearSelection() {
+  selectedKey = null;
+  renderTable();
+  try {
+    await StreamBIM.API.resetObjectSearch();
+    await StreamBIM.API.deHighlightAllObjects();
+    log("Valg nullstilt.");
+  } catch (err) {
+    log("Feil ved nullstilling: " + errText(err));
+  }
+}
+
+function saveFadePreference() {
+  try {
+    localStorage.setItem(FADE_STORAGE_KEY, fadeToggle.checked ? "1" : "0");
+  } catch {
+    // bare en bekvemmelighet — kan være sperret i iframe
+  }
+}
+
+function loadFadePreference() {
+  try {
+    const saved = localStorage.getItem(FADE_STORAGE_KEY);
+    if (saved !== null) fadeToggle.checked = saved === "1";
+  } catch {
+    // standard (på) brukes
   }
 }
 
@@ -254,10 +300,9 @@ async function handlePickedObject(result) {
   selectedKey = moved.row.postnr;
   renderTable();
   tableContainer.scrollTop = 0;
-  log(`Postnr ${moved.row.postnr} klikket i 3D-viewer (${moved.row.count} stk, utvider valg).`);
-
   try {
-    await highlightGroup(moved.row);
+    const highlighted = await highlightGroup(moved.row);
+    log(`Postnr ${moved.row.postnr} klikket i 3D-viewer (${moved.row.count} stk), highlightet ${highlighted}/${moved.row.objects} objekter.`);
   } catch (err) {
     log("Feil ved utvidelse av valg: " + errText(err));
   }
@@ -306,6 +351,9 @@ async function runSearchTest() {
     postnr: row.postnr,
     forventetObjekter: row.objects,
     armeringsobjekterILista: rebarObjectCount,
+    // For å lære StreamBIM sitt kamera: posisjon/rotasjon nå, og gruppens utstrekning.
+    kamera: await StreamBIM.API.getCameraState().catch((err) => `feil: ${errText(err)}`),
+    gruppeBbox: unionBbox(row.guids.map((guid) => bboxByGuid.get(guid))),
     findObjects: {
       kindReinforcingBar: await find({ key: "@kind", value: "Reinforcing bar", limit: SEARCH_LIMIT }),
       kindFinnesIkke: await find({ key: "@kind", value: "Finnes-ikke-xyz", limit: SEARCH_LIMIT }),
@@ -323,8 +371,11 @@ async function runSearchTest() {
     result.applyObjectSearch[label] = await countResult(() => StreamBIM.API.applyObjectSearch(query, true));
   }
   await StreamBIM.API.resetObjectSearch().catch(() => {});
+  // Søkene over erstattet og nullstilte StreamBIM sitt utvalg, så raden er ikke lenger valgt.
+  selectedKey = null;
+  renderTable();
   debugOutput.value = JSON.stringify({ søketest: result, søk: queries }, null, 2);
-  log(`Søketest ferdig for postnr ${row.postnr}.`);
+  log(`Søketest ferdig for postnr ${row.postnr} (valget er nullstilt).`);
 }
 
 /** Kopierer rådata + logg. navigator.clipboard er ofte sperret i en iframe på et annet
@@ -352,6 +403,11 @@ debugToggle.addEventListener("click", () => {
   if (debugPanel.classList.contains("show") && lastPickedGuid) updateDebugPanel(lastPickedGuid);
 });
 searchTestBtn.addEventListener("click", runSearchTest);
+fadeToggle.addEventListener("change", () => {
+  saveFadePreference();
+  // Gjelder med en gang for gruppen som er valgt nå.
+  if (selectedKey !== null) StreamBIM.API.setSearchVisualizationMode(visualizationMode()).catch(() => {});
+});
 copyBtn.addEventListener("click", () => {
   copyDebug();
   setTimeout(() => (copyBtn.textContent = "Kopier rådata og logg"), 3000);
@@ -373,6 +429,7 @@ refreshBtn.addEventListener("click", fetchRebarList);
  *  direkte (ikke som iframe i StreamBIM), eller sender verten ingen referrer, blir det
  *  aldri noen tilkobling — vakthunden gir da en forklaring i stedet for evig "kobler til". */
 async function main() {
+  loadFadePreference();
   renderTable();
   document.getElementById("version").textContent = `versjon ${WIDGET_VERSION}`;
   log(`Søk Armering versjon ${WIDGET_VERSION}`);

@@ -10,6 +10,7 @@ const {
   groupRebar,
   groupSearchQueries,
   isUsableGroupSearch,
+  unionBbox,
   sortRows,
   formatLengde,
   moveToTop,
@@ -115,6 +116,27 @@ test.describe("groupSearchQueries", () => {
 
   test("returns nothing for the missing-postnr group", () => {
     assert.deepEqual(groupSearchQueries({ postnr: MISSING_POSTNR, searchKey: null }, 10), []);
+  });
+});
+
+test.describe("unionBbox", () => {
+  test("combines StreamBIM bboxes [minX, minY, minZ, maxX, maxY, maxZ]", () => {
+    assert.deepEqual(
+      unionBbox([
+        [0, 0, 0, 1, 1, 1],
+        [2, -1, 0.5, 3, 0.5, 2],
+      ]),
+      [0, -1, 0, 3, 1, 2]
+    );
+  });
+
+  test("skips missing or malformed boxes", () => {
+    assert.deepEqual(unionBbox([null, [1, 1, 1, 2, 2, 2], [1, 2], undefined]), [1, 1, 1, 2, 2, 2]);
+  });
+
+  test("returns null when there is no usable box", () => {
+    assert.equal(unionBbox([]), null);
+    assert.equal(unionBbox([null, "x"]), null);
   });
 });
 
