@@ -106,6 +106,17 @@
     return !hasValue(kind) || /reinforc/i.test(String(kind));
   }
 
+  /** Har StreamBIM laget 3D for objektet? Ekte getObjectInfo har en "Geometry"-gruppe med
+   *  "Faces Hi"/"Faces Lo". true = har flater, false = alle er 0 (objektet finnes i data,
+   *  men vises ikke i 3D — f.eks. etter en mangelfull import), null = ukjent. */
+  function hasGeometry(properties) {
+    const geometry = properties && properties.Geometry;
+    if (!isPlainObject(geometry)) return null;
+    const faces = ["Faces Hi", "Faces Lo"].map((key) => Number(geometry[key])).filter((n) => hasValue(n) && Number.isFinite(n));
+    if (faces.length === 0) return null;
+    return faces.some((n) => n > 0);
+  }
+
   /** Pset-delen av en "Pset~Egenskap"-nøkkel, eller null for flate navn. */
   function psetOf(hit) {
     const parts = hit.key.split("~");
@@ -126,6 +137,7 @@
   function groupRebar(items) {
     const groups = new Map();
     let missingPostnr = 0;
+    let missing3d = 0;
 
     for (const { guid, properties, building } of items) {
       const postnrHit = findProperty(properties, FIELDS.postnr);
@@ -143,16 +155,21 @@
           formkode: valueOf(findProperty(properties, FIELDS.formkode)),
           segment: valueOf(findProperty(properties, FIELDS.segment)),
           count: 0,
+          missing3d: 0,
           guids: [],
         });
       }
       const group = groups.get(key);
       group.count += barsIn(properties);
       group.guids.push(guid);
+      if (hasGeometry(properties) === false) {
+        group.missing3d++;
+        missing3d++;
+      }
     }
 
     const rows = Array.from(groups.values()).map((row) => ({ ...row, objects: row.guids.length }));
-    return { rows, missingPostnr };
+    return { rows, missingPostnr, missing3d };
   }
 
   /** Søkeregel for en postnr-gruppe i formatet StreamBIM selv bruker (lest i StreamBIM sin
@@ -265,6 +282,7 @@
     isRebarObject,
     groupRebar,
     postnrSearchRule,
+    hasGeometry,
     guidSearchRule,
     colorCodeMap,
     unionBbox,

@@ -22,7 +22,7 @@ const SEARCH_LIMIT = 10000;
 const INFO_CONCURRENCY = 10;
 const MARK_COLOR = "#ffd400"; // gul — leses av three.js i StreamBIM, så "#" må være med
 const CONNECT_TIMEOUT_MS = 15000;
-const COLUMNS = ["postnr", "count", "diameter", "lengde", "formkode", "segment"];
+const COLUMNS = ["postnr", "count", "objects", "diameter", "lengde", "formkode", "segment"];
 
 const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("refresh-btn");
@@ -138,7 +138,7 @@ async function fetchRebarList() {
     }
 
     const items = await fetchRebarInfo(guids);
-    const { rows: grouped, missingPostnr } = groupRebar(items);
+    const { rows: grouped, missingPostnr, missing3d } = groupRebar(items);
     rows = sortRows(grouped, sortKey, sortDir);
     rebarObjectCount = items.length;
     selectedKey = null;
@@ -147,12 +147,23 @@ async function fetchRebarList() {
 
     const bars = rows.reduce((sum, row) => sum + row.count, 0);
     countEl.textContent = `${bars} stenger i ${items.length} IFC-objekter (${rows.length} unike postnr).`;
+    const notes = [];
     if (missingPostnr > 0) {
-      showNote(
+      notes.push(
         `${missingPostnr} elementer manglet postnr-egenskapen. Klikk ett av dem i 3D-vieweren og ` +
         "åpne \"Feilsøking\" for å se hva postnr heter i denne modellen."
       );
     }
+    if (missing3d > 0) {
+      const affected = rows.filter((row) => row.missing3d > 0).map((row) => row.postnr);
+      notes.push(
+        `${missing3d} av ${items.length} objekter har ingen 3D-geometri i StreamBIM og vises ikke i modellen ` +
+        `(postnr ${affected.slice(0, 20).join(", ")}${affected.length > 20 ? " …" : ""}). ` +
+        "Sjekk eksporten/importen av IFC-filen."
+      );
+      log(`${missing3d} objekter uten 3D-geometri i StreamBIM.`);
+    }
+    showNote(notes.join(" "));
     setStatus("Tilkoblet StreamBIM ✔", "ok");
     log(`Hentet ${items.length} IFC-objekter med ${bars} stenger, ${rows.length} unike postnr.`);
   } catch (err) {
@@ -181,12 +192,15 @@ function renderTable() {
   for (const row of rows) {
     const tr = document.createElement("tr");
     if (row.postnr === selectedKey) tr.className = "selected";
-    const values = [row.postnr, row.count, row.diameter, formatLengde(row.lengde), row.formkode, row.segment];
-    for (const value of values) {
+    // "Obj." er IFC-objekter — samme tall som StreamBIM viser i «Fremhever N objekter».
+    const objectsText = row.missing3d > 0 ? `${row.objects} (${row.missing3d} uten 3D)` : row.objects;
+    const values = [row.postnr, row.count, objectsText, row.diameter, formatLengde(row.lengde), row.formkode, row.segment];
+    values.forEach((value, i) => {
       const td = document.createElement("td");
       td.textContent = value ?? "";
+      if (COLUMNS[i] === "objects" && row.missing3d > 0) td.className = "warn";
       tr.appendChild(td);
-    }
+    });
     tr.addEventListener("click", () => (row.postnr === selectedKey ? clearSelection() : selectAndZoom(row)));
     tableBody.appendChild(tr);
   }

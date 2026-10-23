@@ -36,7 +36,7 @@ README-en stemmer ikke på flere punkter. Dette er lest i `app.streambim.com/web
 | `applyObjectSearch(q)` | returnerer `guid[]` | Samme regelbygging som over, kjører StreamBIM sitt søke-highlight og **returnerer bare `true`**. `filter.rules` blir ignorert. |
 | `getObjectInfoForSearch(q)` | | Leser regler fra **`q.filter.rules`** (eller `q.filter.key/value`), altså et annet sted enn de to over. |
 | `colorCodeObjects({guid: farge})` | fargekod | Farger objektene **og** gjør dem til aktivt søk (`@guid in a\|b\|c`). Tomt kart fjerner farger og søk. |
-| Farge | hex | Leses med three.js `new Color(...)`. Bruk **`"#rrggbb"`**, med `#`. |
+| Farge | hex | Leses med three.js `new Color(...)`. Bruk **`"#rrggbb"`**, med `#`. **Men fargen vises ikke:** `startSearchMode` krever at fargekoden har en `type`, og det har ikke en GUID-fargekode. StreamBIM faller da tilbake til sin grønne søkefarge (`COLOR_CONSTANTS.highlight` = `[0, 0.9, 0]`) og logger «No color coding specified for color code visualization mode» i konsollen. Bekreftet live: stengene ble grønne. Ingen widget-funksjon kan sette egen markeringsfarge i denne StreamBIM-versjonen. |
 | `setSearchVisualizationMode(m)` | | Setter hvordan objekter *utenfor* søket vises: `FADED` gir redusert opasitet, `HIDDEN` skjuler dem. Fargekodede objekter tegnes alltid fullt. |
 | `zoomToSearchResult()` | | Rammer inn det aktive søket. Etter `colorCodeObjects` er det nøyaktig de fargede objektene. |
 | `resetObjectSearch()` | | `resetIfcSearch`. |
@@ -54,6 +54,12 @@ await API.colorCodeObjects(Object.fromEntries(guids.map((g) => [g, "#ffd400"])))
 await API.applyObjectSearch({ rules: [[{ buildingId, propKey: "@guid", operator: "in", propValue: guids.join("|") }]] });
 await API.zoomToSearchResult();
 ```
+
+Resultat live (versjon 2026-10-23.6): gruppen markeres, resten tones ned, og zoomen treffer riktig. Det virker også ved flere klikk etter hverandre. Fargen blir likevel StreamBIMs grønne, og StreamBIMs egen søkelinje («Fremhever N objekter», med X for å avslutte) vises øverst. Begge deler er StreamBIMs standard for aktive søk, og en widget kan ikke endre det.
+
+**Hvilke widget-funksjoner finnes faktisk** i denne StreamBIM-versjonen (fra koden): applyObjectSearch, colorCodeByProperty, colorCodeObjects, colorCodeSpaces, createObject, deHighlightAllObjects, deHighlightObject, findObjects, getAnnotatedFloorplan, getBuildingId, getCameraState, getFloors, getLayers, getMapImage, getObjectInfo, getObjectInfoForSearch, getSpaces, getUserEmail, getViewportState, goHome, gotoFloor, gotoObject, gotoSpace, hideGrids, hideObject, highlightObject, makeApiRequest, quickSearch, resetObjectSearch, setAuthToken, setCameraPosition, setCameraState, setExpanded, setLayers, setNavigationMode, setSearchVisualizationMode, setShowExpandButton, setSkyColor, setViewportState, showAllObjects, showGrids, showObject, takeScreenshot, valuesForObjectProperty, zoomToSearchResult. **Ikke** `colorCodeObjectsWithLegends`, `colorCodeSpacesWithLegends` eller `setStyles`, selv om README nevner dem.
+
+**3D-geometri:** `getObjectInfo().groups` har en «Geometry»-gruppe med «Faces Hi»/«Faces Lo». Er de 0, finnes objektet i StreamBIMs data, men vises ikke i 3D, for eksempel etter en mangelfull IFC-import. Søk Armering teller og varsler om slike objekter.
 
 Feil vi traff live før denne rekkefølgen:
 - `setSearchVisualizationMode` etter `colorCodeObjects` kjørte det forrige søket parallelt. Bare første klikk virket, og stengene ble grønne i stedet for gule.

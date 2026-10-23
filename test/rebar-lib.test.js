@@ -9,6 +9,7 @@ const {
   isRebarObject,
   groupRebar,
   postnrSearchRule,
+  hasGeometry,
   guidSearchRule,
   colorCodeMap,
   unionBbox,
@@ -83,6 +84,7 @@ test.describe("groupRebar with real StreamBIM data", () => {
         formkode: "00",
         segment: undefined,
         count: 1,
+        missing3d: 0,
         guids: ["g"],
         objects: 1,
       }
@@ -110,6 +112,36 @@ test.describe("postnrSearchRule", () => {
 
   test("returns null for the missing-postnr group", () => {
     assert.equal(postnrSearchRule({ postnr: MISSING_POSTNR, searchKey: null }), null);
+  });
+});
+
+test.describe("hasGeometry", () => {
+  test("is true when StreamBIM's Geometry group has faces", () => {
+    assert.equal(hasGeometry({ Geometry: { "Faces Hi": "80", "Faces Lo": "20" } }), true);
+    assert.equal(hasGeometry({ Geometry: { "Faces Hi": "0", "Faces Lo": "12" } }), true);
+  });
+
+  test("is false when every face count is zero", () => {
+    assert.equal(hasGeometry({ Geometry: { "Faces Hi": "0", "Faces Lo": "0" } }), false);
+  });
+
+  test("is null (unknown) without a Geometry group or face counts", () => {
+    assert.equal(hasGeometry({ KS_Armering: { Posisjonsnummer: "5" } }), null);
+    assert.equal(hasGeometry({ Geometry: { "Node List": "[0]" } }), null);
+    assert.equal(hasGeometry(undefined), null);
+  });
+});
+
+test.describe("groupRebar counts objects without 3D", () => {
+  test("counts objects whose geometry is missing, but not unknown ones", () => {
+    const { rows, missing3d } = groupRebar([
+      { guid: "a", properties: { Posisjonsnummer: "1", Geometry: { "Faces Hi": "80" } } },
+      { guid: "b", properties: { Posisjonsnummer: "1", Geometry: { "Faces Hi": "0", "Faces Lo": "0" } } },
+      { guid: "c", properties: { Posisjonsnummer: "2" } },
+    ]);
+    assert.equal(rows.find((r) => r.postnr === "1").missing3d, 1);
+    assert.equal(rows.find((r) => r.postnr === "2").missing3d, 0);
+    assert.equal(missing3d, 1);
   });
 });
 
@@ -279,7 +311,7 @@ test.describe("groupRebar", () => {
   });
 
   test("returns no rows for an empty input", () => {
-    assert.deepEqual(groupRebar([]), { rows: [], missingPostnr: 0 });
+    assert.deepEqual(groupRebar([]), { rows: [], missingPostnr: 0, missing3d: 0 });
   });
 
   test("counts bars from Antall when one IFC object is a whole bar set", () => {

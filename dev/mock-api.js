@@ -12,7 +12,9 @@
  *   findfilter=1      findObjects filtrerer på nøkkel/verdi. Standard er AV, fordi ekte
  *                     StreamBIM ga de samme objektene for hver søkeverdi i live-test.
  *   kind=0            @kind-søk gir ingen treff
- *   search=0          applyObjectSearch/zoomToSearchResult støttes ikke */
+ *   search=0          applyObjectSearch/zoomToSearchResult støttes ikke
+ *   uten3d=31,27      disse postnummerne får 0 flater i "Geometry" (som etter en mangelfull
+ *                     import: objektet finnes i data, men vises ikke i 3D) */
 (function () {
   function readSettings(params) {
     return {
@@ -20,7 +22,16 @@
       findfilter: params.get("findfilter") === "1",
       kind: params.get("kind") !== "0",
       search: params.get("search") !== "0",
+      uten3d: (params.get("uten3d") || "").split(",").map((s) => s.trim()).filter(Boolean),
     };
+  }
+
+  function postnrOf(obj) {
+    for (const props of Object.values(obj.psets)) {
+      const value = props.Posisjonsnummer ?? props["ARM.07 - Posnr"];
+      if (value !== undefined) return String(value);
+    }
+    return null;
   }
 
   /** "ReinforcingBar" → "Reinforcing bar", slik ekte StreamBIM viser @kind. */
@@ -70,13 +81,19 @@
       return bboxCache.get(obj.guid);
     }
 
+    /** "Geometry"-gruppen slik ekte StreamBIM har den; 0 flater for postnr i uten3d. */
+    function geometryGroupFor(obj) {
+      const missing = settings.uten3d.includes(postnrOf(obj));
+      return { "Faces Hi": missing ? "0" : "80", "Faces Lo": missing ? "0" : "20" };
+    }
+
     /** getObjectInfo()-svaret i valgt form. "streambim" er formen ekte StreamBIM bruker. */
     function objectInfoFor(obj) {
       if (settings.format === "streambim") {
         return {
           layer: "MockARM",
           properties: { "@kind": readableKind(obj.kind), Name: obj.name, "Global Id": obj.guid, BaseType: "ifcelement" },
-          groups: Object.entries(obj.psets).map(([label, props]) => ({
+          groups: Object.entries({ ...obj.psets, Geometry: geometryGroupFor(obj) }).map(([label, props]) => ({
             label,
             source: "GRAPH",
             content: {

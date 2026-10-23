@@ -12,7 +12,8 @@ Samlemappe for egne StreamBIM-widgets. En StreamBIM-widget er en vanlig nettside
 
 Lister all armering i modellen gruppert per posisjonsnummer:
 
-- Kolonnene er postnr, antall, diameter, lengde, formkode og segment. Klikk på en overskrift for å sortere.
+- Kolonnene er postnr, antall, obj., diameter, lengde, formkode og segment. Klikk på en overskrift for å sortere.
+- **Obj.** er antall IFC-objekter. Det er samme tall som StreamBIM viser i «Fremhever N objekter», mens **Antall** er antall stenger. Mangler noen av objektene 3D-geometri i StreamBIM, står det for eksempel «42 (12 uten 3D)» i oransje, og en melding over lista sier hvilke postnr det gjelder.
 - **Antall** er antall stenger. Revit eksporterer et helt armeringssett som ett IFC-objekt, så widgeten summerer egenskapen `Antall` og teller 1 per objekt der den mangler.
 - **Liste → modell:** klikk en rad. Alle stenger med det postnummeret blir gule, og kameraet zoomer til dem.
   - Med **Ton ned resten av modellen ved valg** (på som standard) tones resten av modellen ned, så de valgte stengene synes godt. Valget huskes i nettleseren.
@@ -26,6 +27,7 @@ Lister all armering i modellen gruppert per posisjonsnummer:
 
 Kjente begrensninger:
 
+- Markerte stenger blir **grønne**, StreamBIMs egen søkefarge, og StreamBIMs søkelinje («Fremhever N objekter») vises øverst. Widgeten ber om gult, men denne StreamBIM-versjonen ignorerer fargen (se [docs](docs/streambim-widget-api.md)). X-en i søkelinja fjerner markeringen.
 - Den viser armering i **hele modellen**, ikke bare det som er synlig. StreamBIM har ikke noe filter for «kun synlige».
 - Zoom til hele gruppen skjer via et aktivt søk på postnr-egenskapen. Har andre objekter samme postnr-verdi (f.eks. betongdeler fra Tekla), kommer de med i innrammingen. Støtter ikke StreamBIM søket, zoomes det til første stang i stedet.
 
