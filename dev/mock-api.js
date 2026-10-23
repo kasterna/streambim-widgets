@@ -106,7 +106,9 @@
 
     /** Ett søkekriterium: @kind (lesbar eller IFC-form), "Pset~Egenskap" eller bare
      *  egenskapsnavnet, eventuelt avgrenset til ett Pset. */
-    function matches(obj, key, value, pset) {
+    function matches(obj, key, value, pset, operator) {
+      // StreamBIM sin egen "disse objektene"-regel (searchForObjects): @guid in a|b|c
+      if (key === "@guid") return operator === "in" ? String(value).split("|").includes(obj.guid) : obj.guid === value;
       if (key === "@kind") {
         const wanted = String(value).toLowerCase();
         return settings.kind && (obj.kind.toLowerCase() === wanted || readableKind(obj.kind).toLowerCase() === wanted);
@@ -128,7 +130,8 @@
       const rules = query.rules || (query.filter && query.filter.rules);
       let predicate;
       if (Array.isArray(rules)) {
-        predicate = (o) => rules.some((group) => group.every((rule) => matches(o, rule.propKey, rule.propValue, rule.psetName)));
+        predicate = (o) =>
+          rules.some((group) => group.every((rule) => matches(o, rule.propKey, rule.propValue, rule.psetName, rule.operator)));
       } else {
         const { key, value } = query.filter || query;
         predicate = (o) => matches(o, key, value);
@@ -196,6 +199,8 @@
         state.highlighted.clear();
         state.colorCoded = new Map(entries);
         state.activeSearch = entries.length ? new Set(entries.map(([guid]) => guid)) : null;
+        // Tomt kart = resetIfcSearch, som også nullstiller visningsmodus til standard (FADED).
+        if (!entries.length) state.visualizationMode = "FADED";
         return true;
       },
       setSearchVisualizationMode: settings.search

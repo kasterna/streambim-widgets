@@ -6,6 +6,7 @@ const {
   isRebarObject,
   groupRebar,
   postnrSearchRule,
+  guidSearchRule,
   colorCodeMap,
   unionBbox,
   sortRows,
@@ -46,6 +47,7 @@ let lastPickedGuid = null;
 let hasLoaded = false;
 let rebarObjectCount = 0; // armeringsobjekter i lista — brukes til å avsløre søk som ikke filtrerer
 const bboxByGuid = new Map(); // guid -> StreamBIM bbox [minX, minY, minZ, maxX, maxY, maxZ]
+let buildingId = null; // fra getBuildingId() — samme verdi StreamBIM bruker i egne søkeregler
 const FADE_STORAGE_KEY = "sok-armering-ton-ned";
 
 function log(msg) {
@@ -200,15 +202,24 @@ function visualizationMode() {
   return fadeToggle.checked ? "FADED" : "ORIGINAL";
 }
 
-/** Gjør hele postnr-gruppen gul og toner ned resten. Lest i StreamBIM sin kode:
- *  colorCodeObjects({guid: farge}) farger objektene OG gjør dem til aktivt søk (en
- *  "@guid in …"-regel), så setSearchVisualizationMode("FADED") gir resten redusert
- *  opasitet mens de fargede tegnes fullt, og zoomToSearchResult rammer inn nøyaktig
- *  gruppen. (highlightObject er bare "velg objekt" og viskes ut av hvert søk.) */
+/** Gjør hele postnr-gruppen gul og toner ned resten. Rekkefølgen er bygget på StreamBIM
+ *  sin egen kode (se docs, «Slik virker API-et egentlig»):
+ *  1. colorCodeObjects({}) = resetIfcSearch: tømmer søk, farger og visningsmodus. Uten
+ *     dette kjørte setSearchVisualizationMode (reloadSearch) det FORRIGE søket parallelt
+ *     med det nye, og bare første klikk virket (live 2026-10-23).
+ *  2. FADED er StreamBIM sin standard etter reset; ORIGINAL settes før det nye søket,
+ *     når det ikke finnes noe gammelt søk å kjøre på nytt.
+ *  3. colorCodeObjects(map) farger og søker. Fargekoden er på plass når søket er ferdig,
+ *     så StreamBIM tegner COLOR_CODED (gult), ikke sin grønne søkefarge.
+ *  4. Zoom: zoomToSearchResult bruker siste FERDIGE søk. applyObjectSearch med samme
+ *     "@guid in"-regel svarer først når søket er ferdig, så zoomen treffer gruppen. */
 async function markGroup(row, { zoom }) {
+  await StreamBIM.API.colorCodeObjects({});
+  if (visualizationMode() !== "FADED") await StreamBIM.API.setSearchVisualizationMode(visualizationMode());
   await StreamBIM.API.colorCodeObjects(colorCodeMap(row.guids, MARK_COLOR));
-  await StreamBIM.API.setSearchVisualizationMode(visualizationMode());
-  if (zoom) await StreamBIM.API.zoomToSearchResult();
+  if (!zoom) return;
+  await StreamBIM.API.applyObjectSearch({ rules: [[guidSearchRule(row.guids, buildingId || row.building)]] });
+  await StreamBIM.API.zoomToSearchResult();
 }
 
 /** Liste → modell: gul markering av alle stenger med samme postnr, og zoom dit. */
@@ -320,22 +331,23 @@ async function runSearchTest() {
   }
   debugOutput.value = `Tester søk med postnr ${row.postnr}…`;
   const find = (query) => countResult(() => StreamBIM.API.findObjects({ ...query, limit: SEARCH_LIMIT }));
-  const buildingId = await StreamBIM.API.getBuildingId().catch(() => row.building);
+  const building = buildingId || row.building;
   const rule = postnrSearchRule(row);
-  const kindRule = (value) => ({ rules: [[{ buildingId, propKey: "@kind", propValue: value }]] });
+  const kindRule = (value) => ({ rules: [[{ buildingId: building, propKey: "@kind", propValue: value }]] });
   const result = {
     postnr: row.postnr,
     forventetObjekter: row.objects,
     armeringsobjekterILista: rebarObjectCount,
-    buildingId,
+    buildingId: building,
     kamera: await StreamBIM.API.getCameraState().catch((err) => `feil: ${errText(err)}`),
     gruppeBbox: unionBbox(row.guids.map((guid) => bboxByGuid.get(guid))),
     findObjects: {
       nøkkelVerdi_kindReinforcingBar: await find({ key: "@kind", value: "Reinforcing bar" }),
       regel_kindReinforcingBar: await find(kindRule("Reinforcing bar")),
       regel_kindFinnesIkke: await find(kindRule("Finnes-ikke-xyz")),
-      regel_postnrMedPset: await find({ rules: [[{ ...rule, buildingId }]] }),
-      regel_postnrUtenPset: await find({ rules: [[{ buildingId, propKey: row.searchKey, propValue: row.postnr }]] }),
+      regel_postnrMedPset: await find({ rules: [[{ ...rule, buildingId: building }]] }),
+      regel_postnrUtenPset: await find({ rules: [[{ buildingId: building, propKey: row.searchKey, propValue: row.postnr }]] }),
+      regel_guidsIGruppen: await find({ rules: [[guidSearchRule(row.guids, building)]] }),
     },
   };
   debugOutput.value = JSON.stringify({ søketest: result, regel: rule }, null, 2);
@@ -419,6 +431,8 @@ async function main() {
     showNote("");
     log("StreamBIM.connectToParent() lyktes.");
     StreamBIM.API.setShowExpandButton(true).catch((err) => log("setShowExpandButton feilet: " + errText(err)));
+    buildingId = await StreamBIM.API.getBuildingId().catch(() => null);
+    log(`Bygning (getBuildingId): ${buildingId ?? "ukjent — bruker bygning fra objektinfo"}`);
     await fetchRebarList();
   } catch (err) {
     clearTimeout(watchdog);

@@ -9,6 +9,7 @@ const {
   isRebarObject,
   groupRebar,
   postnrSearchRule,
+  guidSearchRule,
   colorCodeMap,
   unionBbox,
   sortRows,
@@ -109,6 +110,21 @@ test.describe("postnrSearchRule", () => {
 
   test("returns null for the missing-postnr group", () => {
     assert.equal(postnrSearchRule({ postnr: MISSING_POSTNR, searchKey: null }), null);
+  });
+});
+
+test.describe("guidSearchRule", () => {
+  test("matches the rule StreamBIM builds itself for colorCodeObjects (@guid in a|b)", () => {
+    assert.deepEqual(guidSearchRule(["a", "b"], "1000"), {
+      buildingId: "1000",
+      propKey: "@guid",
+      operator: "in",
+      propValue: "a|b",
+    });
+  });
+
+  test("leaves out buildingId when it is unknown", () => {
+    assert.deepEqual(guidSearchRule(["a"], null), { propKey: "@guid", operator: "in", propValue: "a" });
   });
 });
 

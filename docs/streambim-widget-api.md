@@ -42,14 +42,22 @@ README-en stemmer ikke på flere punkter. Dette er lest i `app.streambim.com/web
 | `resetObjectSearch()` | | `resetIfcSearch`. |
 | `getBuildingId()` | | `projectservice.building.id`, samme verdi som StreamBIM bruker i egne regler. |
 
-**Oppskrift for «marker en gruppe og ton ned resten»**, som brukes av Søk Armering:
+**Hvordan et søk tegnes:** `applySceneFilter` kjører asynkront. Når søket er ferdig, velger StreamBIM `COLOR_CODED` hvis det finnes en fargekode i det øyeblikket, ellers `HIGHLIGHTED` (StreamBIMs egen grønne søkefarge og «Fremhever N objekter»). Objekter utenfor søket får `outSearchMode`, og standard er `FADED`. `zoomToSearchResult` rammer inn bounding boxen til **siste ferdige** søk. `setSearchVisualizationMode` kjører `reloadSearch`, som starter det lagrede søket på nytt, parallelt med et søk som allerede er på vei.
+
+**Oppskrift for «marker en gruppe og ton ned resten»**, som brukes av Søk Armering. Rekkefølgen er viktig:
 
 ```js
-await StreamBIM.API.colorCodeObjects(Object.fromEntries(guids.map((g) => [g, "#ffd400"])));
-await StreamBIM.API.setSearchVisualizationMode("FADED");   // eller "ORIGINAL"
-await StreamBIM.API.zoomToSearchResult();                   // valgfritt
-// nullstill: await StreamBIM.API.colorCodeObjects({});
+await API.colorCodeObjects({});                                  // 1. nullstill (resetIfcSearch): søk, farger, modus
+if (!fade) await API.setSearchVisualizationMode("ORIGINAL");     // 2. bare ved «ikke ton ned»; FADED er standard
+await API.colorCodeObjects(Object.fromEntries(guids.map((g) => [g, "#ffd400"])));   // 3. farg + søk
+// 4. zoom (valgfritt): applyObjectSearch svarer først når søket er ferdig
+await API.applyObjectSearch({ rules: [[{ buildingId, propKey: "@guid", operator: "in", propValue: guids.join("|") }]] });
+await API.zoomToSearchResult();
 ```
+
+Feil vi traff live før denne rekkefølgen:
+- `setSearchVisualizationMode` etter `colorCodeObjects` kjørte det forrige søket parallelt. Bare første klikk virket, og stengene ble grønne i stedet for gule.
+- `zoomToSearchResult` rett etter `colorCodeObjects` zoomet til forrige søk, fordi det nye ikke var ferdig.
 
 **Venstre panel** (der widgeten bor) kan dras bredere eller smalere i høyre kant, fra 300 px til halve skjermen. Bredden lagres per prosjekt (`usersettings.project.sidebarWidth`). Utvid-knappen veksler til full skjerm. StreamBIM fanger musebevegelsen på dokumentet, så dra-håndtaket henger litt når musa er over widgetens iframe.
 

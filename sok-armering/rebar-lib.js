@@ -168,6 +168,18 @@
     };
   }
 
+  /** Regel for «nettopp disse objektene» — samme regel StreamBIM selv bygger i
+   *  colorCodeObjects (searchForObjects). Brukes med applyObjectSearch, som først svarer
+   *  når søket er ferdig, slik at zoomToSearchResult etterpå treffer riktig gruppe. */
+  function guidSearchRule(guids, buildingId) {
+    return {
+      ...(buildingId ? { buildingId } : {}),
+      propKey: "@guid",
+      operator: "in",
+      propValue: guids.join("|"),
+    };
+  }
+
   /** {guid: farge} for colorCodeObjects(). StreamBIM farger objektene OG gjør dem til
    *  aktivt søk, så resten kan tones ned med setSearchVisualizationMode("FADED"). Fargen
    *  leses av three.js (new Color(...)), så den må ha "#". */
@@ -253,6 +265,7 @@
     isRebarObject,
     groupRebar,
     postnrSearchRule,
+    guidSearchRule,
     colorCodeMap,
     unionBbox,
     sortRows,
