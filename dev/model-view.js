@@ -44,6 +44,11 @@ export function createModelView(container, model, onPick) {
   const normalMaterial = (kind) =>
     (normalMaterials[kind] ??= new THREE.MeshLambertMaterial({ color: COLORS[kind] ?? COLORS.ReinforcingBar }));
   const highlightMaterial = new THREE.MeshLambertMaterial({ color: COLORS.highlight, emissive: 0x332200 });
+  const colorMaterials = new Map(); // farge fra colorCodeObjects -> materiale
+  const colorMaterial = (color) => {
+    if (!colorMaterials.has(color)) colorMaterials.set(color, new THREE.MeshLambertMaterial({ color: new THREE.Color(color) }));
+    return colorMaterials.get(color);
+  };
   const fadedMaterial = new THREE.MeshLambertMaterial({ color: 0x777777, transparent: true, opacity: 0.12, depthWrite: false });
   const contextMaterial = new THREE.MeshLambertMaterial({
     color: COLORS.context,
@@ -184,7 +189,9 @@ export function createModelView(container, model, onPick) {
     for (const [guid, mesh] of meshes) {
       const outsideSearch = state.activeSearch && !state.activeSearch.has(guid);
       mesh.visible = !(outsideSearch && state.visualizationMode === "HIDDEN");
-      if (state.highlighted.has(guid)) mesh.material = highlightMaterial;
+      const codedColor = state.colorCoded && state.colorCoded.get(guid);
+      if (codedColor) mesh.material = colorMaterial(codedColor);
+      else if (state.highlighted.has(guid)) mesh.material = highlightMaterial;
       else if (outsideSearch && state.visualizationMode === "FADED") mesh.material = fadedMaterial;
       else mesh.material = normalMaterial(mesh.userData.obj.kind);
     }

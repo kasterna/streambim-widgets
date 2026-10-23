@@ -14,10 +14,10 @@ Lister all armering i modellen gruppert per posisjonsnummer:
 
 - Kolonnene er postnr, antall, diameter, lengde, formkode og segment. Klikk på en overskrift for å sortere.
 - **Antall** er antall stenger. Revit eksporterer et helt armeringssett som ett IFC-objekt, så widgeten summerer egenskapen `Antall` og teller 1 per objekt der den mangler.
-- **Liste → modell:** klikk en rad. Kameraet zoomer til alle stenger med det postnummeret, og de highlightes.
+- **Liste → modell:** klikk en rad. Alle stenger med det postnummeret blir gule, og kameraet zoomer til dem.
   - Med **Ton ned resten av modellen ved valg** (på som standard) tones resten av modellen ned, så de valgte stengene synes godt. Valget huskes i nettleseren.
   - Klikk på valgt rad igjen for å nullstille.
-- **Modell → liste:** klikk en stang i 3D, så utvides valget til alle stenger med samme postnr og raden flyttes øverst.
+- **Modell → liste:** klikk en stang i 3D. Alle stenger med samme postnr blir gule, resten av modellen tones ned, og raden flyttes øverst. Kameraet blir stående.
 - Lista lastes automatisk når widgeten åpnes. «Oppdater liste» henter den på nytt.
 - Tekla-navn (`Posisjonsnummer`, `Diameter jern` …), RIB-navn (`ARM.07 - Posnr`, `ARM.08 - Stangdiameter` …) og Revit-eksport (`Posisjonsnummer`, `Diameter`, `Antall` …) støttes samtidig.
 - **Feilsøking: inspiser valgt element** nederst viser hvilke egenskapsnavn widgeten fant på sist klikkede element, pluss hele svaret fra StreamBIM.

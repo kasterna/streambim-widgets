@@ -25,6 +25,34 @@ Kortversjon av [`streambim-widget-api`](https://github.com/streambim/streambim-w
 - Transporten er [penpal](https://github.com/Aaronius/penpal) v7, som er bakt inn i `dist`-filen. Kaller du en metode verten ikke har, avvises kallet med en penpal-feil.
 - Feil fra StreamBIM kommer ifølge README som `{ code, detail? }`, men ekte StreamBIM sender `{ code, debug }` (se under). Les derfor `code` og vis resten som det er.
 
+## Slik virker API-et egentlig (lest i StreamBIM sin egen kode, 2026-10-23)
+
+README-en stemmer ikke på flere punkter. Dette er lest i `app.streambim.com/webapp/default/assets/rendrao-*.js` (widget-API-ets handlere) og bekreftet der live-test har vist det samme. **Stol på dette fremfor README.**
+
+| Kall | README sier | Hva StreamBIM faktisk gjør |
+|---|---|---|
+| `highlightObject(guid)` | highlight | **Velger** objektet (`selectObject`). Alle søk og fargekoder fjerner valget (`unselectObjects`). |
+| `findObjects(q)` | `{key, value}` | Bygger `{rules: q.rules \|\| [[{propKey: q.key, propValue: q.value, buildingId: <brukerinnstilling>}]]}`. **`rules` leses på toppnivå.** Returnerer GUID-liste. |
+| `applyObjectSearch(q)` | returnerer `guid[]` | Samme regelbygging som over, kjører StreamBIM sitt søke-highlight og **returnerer bare `true`**. `filter.rules` blir ignorert. |
+| `getObjectInfoForSearch(q)` | | Leser regler fra **`q.filter.rules`** (eller `q.filter.key/value`), altså et annet sted enn de to over. |
+| `colorCodeObjects({guid: farge})` | fargekod | Farger objektene **og** gjør dem til aktivt søk (`@guid in a\|b\|c`). Tomt kart fjerner farger og søk. |
+| Farge | hex | Leses med three.js `new Color(...)`. Bruk **`"#rrggbb"`**, med `#`. |
+| `setSearchVisualizationMode(m)` | | Setter hvordan objekter *utenfor* søket vises: `FADED` gir redusert opasitet, `HIDDEN` skjuler dem. Fargekodede objekter tegnes alltid fullt. |
+| `zoomToSearchResult()` | | Rammer inn det aktive søket. Etter `colorCodeObjects` er det nøyaktig de fargede objektene. |
+| `resetObjectSearch()` | | `resetIfcSearch`. |
+| `getBuildingId()` | | `projectservice.building.id`, samme verdi som StreamBIM bruker i egne regler. |
+
+**Oppskrift for «marker en gruppe og ton ned resten»**, som brukes av Søk Armering:
+
+```js
+await StreamBIM.API.colorCodeObjects(Object.fromEntries(guids.map((g) => [g, "#ffd400"])));
+await StreamBIM.API.setSearchVisualizationMode("FADED");   // eller "ORIGINAL"
+await StreamBIM.API.zoomToSearchResult();                   // valgfritt
+// nullstill: await StreamBIM.API.colorCodeObjects({});
+```
+
+**Venstre panel** (der widgeten bor) kan dras bredere eller smalere i høyre kant, fra 300 px til halve skjermen. Bredden lagres per prosjekt (`usersettings.project.sidebarWidth`). Utvid-knappen veksler til full skjerm. StreamBIM fanger musebevegelsen på dokumentet, så dra-håndtaket henger litt når musa er over widgetens iframe.
+
 ## Hendelser (callbacks i `connectToParent`)
 
 | Callback | Når | Kilde |
@@ -46,7 +74,7 @@ Kortversjon av [`streambim-widget-api`](https://github.com/streambim/streambim-w
 | `findObjects({key, value, limit})` → `guid[]` | Enkelt søk på én egenskap. `key: '@kind'` = IFC-klassen uten `Ifc` (demoen bruker `'Door'`/`'Space'`) |
 | `getObjectInfo(guid)` → `ObjectInfo` | Formen er ikke dokumentert, men nå bekreftet live. Pset-egenskapene ligger i `groups`, ikke i `properties` (se «Bekreftet mot ekte StreamBIM») |
 | `getObjectInfoForSearch({filter, page, sort})` | Info for et helt søkeresultat i ett kall. Hvordan GUID-ene er koblet til resultatet er ukjent |
-| `applyObjectSearch(query, replace)` → `guid[]` | Gjør søket til aktivt utvalg |
+| `applyObjectSearch(query, replace)` | Gjør søket til aktivt utvalg. Returnerer `true`, ikke `guid[]` (se «Slik virker API-et egentlig») |
 | `setSearchVisualizationMode('HIDDEN'\|'FADED'\|'ORIGINAL')` | Hvordan objekter utenfor søket vises |
 | `zoomToSearchResult()` | Rammer inn hele det aktive søket. Det er **den eneste måten å zoome til flere objekter på** |
 | `resetObjectSearch()` | |
@@ -94,8 +122,8 @@ Hele lista står i `node_modules/streambim-widget-api/README.md`. Den mest kompl
   Verdiene i `groups` er alltid tekst (`"12385"`, `"1"`), også tall.
 - `valueItem` er base64 av StreamBIM sin egen søkenøkkel, `ifcelement~KS_Armering~Posisjonsnummer~str~31`. StreamBIM adresserer altså egenskaper som *Pset + egenskap*.
 - **`findObjects({key, value})` filtrerer ikke slik README sier.** Hver søkeverdi ga de samme 255 objektene: «ReinforcingBar», «IfcReinforcingMesh», og til og med «Common Type», som ikke finnes. Sjekk derfor alltid `@kind` på objektene etterpå.
-- **Highlight må komme etter søk.** Widgeten highlightet først og søkte så for å zoome, og da ble ingenting markert i 3D. Det passer med README: `applyObjectSearch` erstatter det aktive utvalget, og `resetObjectSearch` tømmer det. Rekkefølgen er nå zoom → highlight.
-- Om `applyObjectSearch` / `getObjectInfoForSearch` filtrerer med regel-formatet (`psetName`/`propKey`/`propValue`), er **ikke bekreftet ennå**. Knappen «Test søk» i widgetens Feilsøking måler det.
+- **`highlightObject` ga ingen synlig markering** sammen med søk/zoom. Grunnen fant vi i StreamBIM-koden (se tabellen over): det er «velg», og søket fjerner valget. Siden versjon 2026-10-23.5 markeres grupper med `colorCodeObjects` i stedet.
+- Om `findObjects` filtrerer når reglene sendes på toppnivå med riktig `buildingId`, er **ikke bekreftet ennå**. «Test søk» i widgetens Feilsøking måler det. Gjør den det, kan lista lastes raskere i modeller med mye annet enn armering.
 
 ### Testsiden mot app.streambim.com
 

@@ -8,8 +8,8 @@ const {
   objectProperties,
   isRebarObject,
   groupRebar,
-  groupSearchQueries,
-  isUsableGroupSearch,
+  postnrSearchRule,
+  colorCodeMap,
   unionBbox,
   sortRows,
   formatLengde,
@@ -89,33 +89,33 @@ test.describe("groupRebar with real StreamBIM data", () => {
   });
 });
 
-test.describe("groupSearchQueries", () => {
-  test("tries a pset rule first, then plain key/value", () => {
+test.describe("postnrSearchRule", () => {
+  test("builds StreamBIM's own rule format: building, pset, property and value", () => {
     const row = { postnr: "31", searchKey: "Posisjonsnummer", searchPset: "KS_Armering", building: "1000" };
-    const queries = groupSearchQueries(row, 500);
-    assert.deepEqual(
-      queries.map((q) => q.query),
-      [
-        {
-          filter: { rules: [[{ buildingId: "1000", psetName: "KS_Armering", propKey: "Posisjonsnummer", propValue: "31" }]] },
-          page: { limit: 500, skip: 0 },
-        },
-        { key: "Posisjonsnummer", value: "31", limit: 500 },
-      ]
-    );
+    assert.deepEqual(postnrSearchRule(row), {
+      buildingId: "1000",
+      psetName: "KS_Armering",
+      propKey: "Posisjonsnummer",
+      propValue: "31",
+    });
   });
 
-  test("leaves out buildingId and the pset rule when they are unknown", () => {
-    assert.deepEqual(
-      groupSearchQueries({ postnr: "7", searchKey: "Posisjonsnummer", searchPset: null, building: undefined }, 10).map((q) => q.query),
-      [{ key: "Posisjonsnummer", value: "7", limit: 10 }]
-    );
-    const [rule] = groupSearchQueries({ postnr: "7", searchKey: "P", searchPset: "S", building: undefined }, 10);
-    assert.deepEqual(rule.query.filter.rules, [[{ psetName: "S", propKey: "P", propValue: "7" }]]);
+  test("leaves out buildingId and psetName when they are unknown", () => {
+    assert.deepEqual(postnrSearchRule({ postnr: "7", searchKey: "Posisjonsnummer", searchPset: null, building: undefined }), {
+      propKey: "Posisjonsnummer",
+      propValue: "7",
+    });
   });
 
-  test("returns nothing for the missing-postnr group", () => {
-    assert.deepEqual(groupSearchQueries({ postnr: MISSING_POSTNR, searchKey: null }, 10), []);
+  test("returns null for the missing-postnr group", () => {
+    assert.equal(postnrSearchRule({ postnr: MISSING_POSTNR, searchKey: null }), null);
+  });
+});
+
+test.describe("colorCodeMap", () => {
+  test("maps every guid to the same colour, as colorCodeObjects expects", () => {
+    assert.deepEqual(colorCodeMap(["a", "b"], "#ffd400"), { a: "#ffd400", b: "#ffd400" });
+    assert.deepEqual(colorCodeMap([], "#ffd400"), {});
   });
 });
 
@@ -137,29 +137,6 @@ test.describe("unionBbox", () => {
   test("returns null when there is no usable box", () => {
     assert.equal(unionBbox([]), null);
     assert.equal(unionBbox([null, "x"]), null);
-  });
-});
-
-test.describe("isUsableGroupSearch", () => {
-  const row = { guids: ["a", "b"], objects: 2 };
-
-  test("accepts hits that contain the group", () => {
-    assert.equal(isUsableGroupSearch(["a", "b", "x"], row, 255), true);
-  });
-
-  test("rejects empty hits and hits that miss the group", () => {
-    assert.equal(isUsableGroupSearch([], row, 255), false);
-    assert.equal(isUsableGroupSearch(undefined, row, 255), false);
-    assert.equal(isUsableGroupSearch(["x", "y"], row, 255), false);
-  });
-
-  test("rejects a search that returned everything for a smaller group (filter ignored)", () => {
-    const everything = Array.from({ length: 255 }, (_, i) => (i === 0 ? "a" : `o${i}`));
-    assert.equal(isUsableGroupSearch(everything, row, 255), false);
-  });
-
-  test("accepts everything when the group really is everything", () => {
-    assert.equal(isUsableGroupSearch(["a", "b"], { guids: ["a", "b"], objects: 2 }, 2), true);
   });
 });
 

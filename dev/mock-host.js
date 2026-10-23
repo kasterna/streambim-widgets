@@ -54,6 +54,7 @@
   const READ_ONLY_CALLS = new Set([
     "getProjectId", "getUserEmail", "getFloors", "getLayers", "getCameraState",
     "findObjects", "getObjectInfo", "getObjectInfoForSearch", "valuesForObjectProperty", "setShowExpandButton",
+    "getBuildingId",
   ]);
 
   let view = null; // 3D-visning når en ekte modell er lastet

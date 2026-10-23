@@ -38,6 +38,7 @@
       focus: [], // GUID-er kameraet sist ble bedt om å ramme inn (3D-visningen zoomer dit)
       focusVersion: 0,
       visualizationMode: "FADED",
+      colorCoded: new Map(), // guid -> farge fra colorCodeObjects
     };
 
     function setFocus(guids, text) {
@@ -119,14 +120,15 @@
       );
     }
 
-    /** Støtter både {key, value, limit} og README-formatet {filter: {rules: [[regel]]}, page}
-     *  (ytre liste = ELLER, indre = OG) samt demoens {filter: {key, value}}. */
+    /** Støtter {key, value, limit} og regel-formatet {rules: [[regel]]} — på toppnivå slik
+     *  ekte StreamBIM leser det for findObjects/applyObjectSearch, eller under `filter` slik
+     *  getObjectInfoForSearch leser det. Ytre liste = ELLER, indre = OG. */
     function search(query) {
       const limit = query.limit || (query.page && query.page.limit) || 100;
+      const rules = query.rules || (query.filter && query.filter.rules);
       let predicate;
-      if (query.filter && Array.isArray(query.filter.rules)) {
-        predicate = (o) =>
-          query.filter.rules.some((group) => group.every((rule) => matches(o, rule.propKey, rule.propValue, rule.psetName)));
+      if (Array.isArray(rules)) {
+        predicate = (o) => rules.some((group) => group.every((rule) => matches(o, rule.propKey, rule.propValue, rule.psetName)));
       } else {
         const { key, value } = query.filter || query;
         predicate = (o) => matches(o, key, value);
@@ -144,6 +146,7 @@
     // 250 getObjectInfo()-kall mange sekunder.
     const api = {
       getProjectId: async () => "mock-project",
+      getBuildingId: async () => "1000",
       getUserEmail: async () => "mock@example.com",
       setShowExpandButton: async () => true,
       getFloors: async () => [{ id: 1, name: "Plan 1", height: 0 }, { id: 2, name: "Plan 2", height: 3.6 }],
@@ -176,17 +179,25 @@
         setFocus([guid], `Objekt ${byGuid.has(guid) ? byGuid.get(guid).name : guid}`);
         return true;
       },
-      // README: applyObjectSearch gjør søket til "the active selection (optionally replacing
-      // any current set)", og resetObjectSearch "clear active search/selection". Live-test
-      // passet med at det visker ut highlight, så mocken gjør det samme.
+      // Som i StreamBIM sin kode: et søk fjerner utvalget (highlightObject = "velg"), og
+      // applyObjectSearch returnerer bare true — ikke treffene README lover.
       applyObjectSearch: settings.search
-        ? async (query, replace) => {
-            const guids = search(query);
-            if (replace) state.highlighted.clear();
-            state.activeSearch = new Set(guids);
-            return guids;
+        ? async (query) => {
+            state.highlighted.clear();
+            state.activeSearch = new Set(search(query));
+            return true;
           }
         : unsupported("applyObjectSearch"),
+      // Som i StreamBIM sin kode: farger objektene og gjør dem til aktivt søk ("@guid in"),
+      // så setSearchVisualizationMode og zoomToSearchResult virker på nettopp dem. Tomt
+      // kart fjerner fargene og søket.
+      colorCodeObjects: async (map) => {
+        const entries = Object.entries(map || {});
+        state.highlighted.clear();
+        state.colorCoded = new Map(entries);
+        state.activeSearch = entries.length ? new Set(entries.map(([guid]) => guid)) : null;
+        return true;
+      },
       setSearchVisualizationMode: settings.search
         ? async (mode) => {
             state.visualizationMode = mode;
@@ -242,6 +253,10 @@
         tile.type = "button";
         tile.className = `tile kind-${obj.kind}`;
         if (state.highlighted.has(obj.guid)) tile.classList.add("highlighted");
+        if (state.colorCoded.has(obj.guid)) {
+          tile.style.background = state.colorCoded.get(obj.guid);
+          tile.style.color = "#222";
+        }
         if (state.activeSearch && !state.activeSearch.has(obj.guid) && state.visualizationMode === "FADED") {
           tile.classList.add("faded");
         }

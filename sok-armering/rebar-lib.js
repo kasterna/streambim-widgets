@@ -155,21 +155,24 @@
     return { rows, missingPostnr };
   }
 
-  /** Søk som skal finne alle objekter i en postnr-gruppe, i prioritert rekkefølge: først
-   *  regel-formatet fra README (psetName/propKey/propValue, samme oppdeling som StreamBIM
-   *  selv bruker i valueItem), så enkel nøkkel/verdi. UVERIFISERT hvilket som filtrerer. */
-  function groupSearchQueries(row, limit) {
-    if (!row.searchKey || row.postnr === MISSING_POSTNR) return [];
-    const queries = [];
-    if (row.searchPset) {
-      const rule = { psetName: row.searchPset, propKey: row.searchKey, propValue: row.postnr };
-      queries.push({
-        label: "pset-regel",
-        query: { filter: { rules: [[row.building ? { buildingId: row.building, ...rule } : rule]] }, page: { limit, skip: 0 } },
-      });
-    }
-    queries.push({ label: "nøkkel/verdi", query: { key: row.searchKey, value: row.postnr, limit } });
-    return queries;
+  /** Søkeregel for en postnr-gruppe i formatet StreamBIM selv bruker (lest i StreamBIM sin
+   *  kode): findObjects/applyObjectSearch tar `{rules: [[regel]]}` på TOPPNIVÅ, der regel
+   *  er {buildingId, psetName, propKey, propValue}. Brukes av «Test søk». */
+  function postnrSearchRule(row) {
+    if (!row.searchKey || row.postnr === MISSING_POSTNR) return null;
+    return {
+      ...(row.building ? { buildingId: row.building } : {}),
+      ...(row.searchPset ? { psetName: row.searchPset } : {}),
+      propKey: row.searchKey,
+      propValue: row.postnr,
+    };
+  }
+
+  /** {guid: farge} for colorCodeObjects(). StreamBIM farger objektene OG gjør dem til
+   *  aktivt søk, så resten kan tones ned med setSearchVisualizationMode("FADED"). Fargen
+   *  leses av three.js (new Color(...)), så den må ha "#". */
+  function colorCodeMap(guids, color) {
+    return Object.fromEntries(guids.map((guid) => [guid, color]));
   }
 
   /** Samlet utstrekning for en gruppe fra StreamBIM sine bbox-er
@@ -178,16 +181,6 @@
     const valid = boxes.filter((b) => Array.isArray(b) && b.length === 6 && b.every(Number.isFinite));
     if (valid.length === 0) return null;
     return [0, 1, 2, 3, 4, 5].map((i) => (i < 3 ? Math.min : Math.max)(...valid.map((b) => b[i])));
-  }
-
-  /** Et søk duger til zoom bare hvis det traff gruppen og faktisk filtrerte: får vi alle
-   *  armeringsobjektene tilbake for en mindre gruppe, ble filteret ignorert (sett i live-
-   *  test for findObjects), og zoomen ville rammet inn hele modellen. */
-  function isUsableGroupSearch(hits, row, totalObjects) {
-    if (!Array.isArray(hits) || hits.length === 0) return false;
-    const hitSet = new Set(hits);
-    if (!row.guids.some((guid) => hitSet.has(guid))) return false;
-    return !(hits.length >= totalObjects && row.objects < totalObjects);
   }
 
   /** Returnerer en ny sortert liste. Tall sorteres numerisk, resten alfabetisk; tomme
@@ -259,8 +252,8 @@
     objectProperties,
     isRebarObject,
     groupRebar,
-    groupSearchQueries,
-    isUsableGroupSearch,
+    postnrSearchRule,
+    colorCodeMap,
     unionBbox,
     sortRows,
     formatLengde,
